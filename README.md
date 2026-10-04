@@ -1,5 +1,7 @@
 # Combined Launcher Animations
 
+https://github.com/user-attachments/assets/44daed2d-2217-47fd-92bb-d5a377fc6a06
+
 Nova-style app transitions and iLauncher-style icon animations for integration into any
 Android launcher. Connect the animation code to your launcher's icons, layout and lifecycle
 through a launcher adapter.
