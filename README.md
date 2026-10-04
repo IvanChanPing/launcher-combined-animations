@@ -42,6 +42,23 @@ Follow [steps 1–10](#integrate-into-your-launcher) in order. The
 [standalone library build](#build-the-library-on-its-own) and
 [example patch kit](#example-integration) are separate reference sections, not extra setup steps.
 
+### Start with your renderer
+
+Before implementing the adapter, identify how your launcher draws one icon. The class drawing
+the artwork is not always the View you need to pass to the animation library.
+
+| Your launcher uses | Start here |
+| --- | --- |
+| An `ImageView`, or a cell containing an image, label and badge | [Worked View-cell example](docs/RENDERER_INTEGRATION.md#2-work-through-one-view-based-cell) |
+| A custom View that draws its own icon with Canvas | [Custom View recipe](docs/RENDERER_INTEGRATION.md#3-adapt-the-artwork-recipe-to-your-renderer) |
+| Adaptive, themed, icon-pack or cached bitmap artwork | [Choose the artwork representation](docs/RENDERER_INTEGRATION.md#3-adapt-the-artwork-recipe-to-your-renderer) |
+| One Canvas, Compose, Flutter, OpenGL or another shared surface for many icons | [Renderer boundary and missing bridge](docs/RENDERER_INTEGRATION.md#1-check-whether-the-current-api-fits-your-renderer) |
+
+The [renderer integration guide](docs/RENDERER_INTEGRATION.md) shows what to inspect, which
+objects to connect, and what to check before continuing. It distinguishes existing API support
+from additional renderer work. One package-independent interface does not automatically provide
+an adapter for every rendering system.
+
 ## Contents
 
 - `runtime/`: Android Java library with a public host API and bundled gesture layout.
@@ -174,6 +191,10 @@ Do not leave the generated `null` or `false` placeholders without checking what 
 These methods are the adapter. Their bodies depend on your launcher because every launcher
 stores its icons and app records differently. The animation classes do not need to be renamed
 to match your launcher. Full signatures are in [LauncherHost.java](runtime/src/main/java/com/ivanchan/launcher/combined/transitions/LauncherHost.java).
+
+Use the [worked cell mapping](docs/RENDERER_INTEGRATION.md#2-work-through-one-view-based-cell)
+when filling these methods. In particular, use the same whole-cell View for scene membership,
+launch interception and return lookup; do not mix a child ImageView with its parent cell.
 
 To fill in those methods, first identify these existing objects in your launcher:
 
