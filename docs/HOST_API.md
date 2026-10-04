@@ -4,6 +4,10 @@ The launcher Activity implements `LauncherHost`; it can extend any `Activity` su
 its own package, views and app model. The runtime retains the Activity weakly and calls the host
 on the main thread. No global adapter singleton or reflection map is used.
 
+For step-by-step adaptation of an ImageView cell, custom-drawn icon, adaptive drawable or
+non-View renderer, start with [Integrate your icon renderer](RENDERER_INTEGRATION.md).
+This page is the method contract; the companion guide explains how to obtain its inputs.
+
 ## Required methods
 
 | Method | Return / responsibility |
