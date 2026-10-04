@@ -19,7 +19,7 @@ import java.util.List;
  */
 final class SnapshotGridView extends View {
     private static final long MAX_PIXELS = 6L * 1024L * 1024L;
-    private final LauncherAccess.Scene scene;
+    private final LauncherScene scene;
     private final List<Shot> shots = new ArrayList<>();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     final int duration;
@@ -42,13 +42,13 @@ final class SnapshotGridView extends View {
         }
     }
 
-    SnapshotGridView(LauncherAccess.Scene scene, View selected) {
+    SnapshotGridView(LauncherScene scene, View selected) {
         super(scene.root.getContext());
         this.scene = scene;
         duration = MotionMath.sceneDuration(scene.maxRing);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         try {
-            for (LauncherAccess.Item item : scene.items)
+            for (LauncherScene.Item item : scene.items)
                 if (item.view != selected) capture(item.view, item.matrix, item.ring, false);
             float alpha = selected == null ? 1f : selected.getAlpha();
             try {
@@ -57,8 +57,8 @@ final class SnapshotGridView extends View {
                     // iLauncher starts the group at the viewport bottom. The target dock floats
                     // above a bottom margin, so summing child heights omits part of its travel.
                     stripTravel = Math.max(stripTravel, MotionMath.stripTravel(
-                            scene.root.getHeight(), LauncherAccess.bounds(strip, scene.root).top));
-                    capture(strip, LauncherAccess.toRoot(strip, scene.root), 0, true);
+                            scene.root.getHeight(), LauncherGeometry.bounds(strip, scene.root).top));
+                    capture(strip, LauncherGeometry.toRoot(strip, scene.root), 0, true);
                 }
             } finally {
                 if (selected != null) selected.setAlpha(alpha);

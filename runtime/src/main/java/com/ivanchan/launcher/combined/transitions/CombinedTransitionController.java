@@ -26,7 +26,8 @@ import java.util.WeakHashMap;
  * Purpose: Coordinate grid-only unlock, Nova open, and Nova's system gesture contract plus grid return.
  * Invocation: Exact target launch/options hooks and post-body lifecycle/model-ready hooks.
  * Contract: Main-thread only. Weak Activity ownership outside an active rendering interval;
- * generation invalidates callbacks. Vendor j0 remains the only actual launch authority.
+ * generation invalidates callbacks. LauncherHost owns the only actual launch authority.
+ * The launcher Activity implements LauncherHost; no package, view class or model is assumed.
  * Snapshot failure returns to that native path before originals are hidden. Issued replay is
  * never repeated on a timeout or exception. Surface selection is from current target state.
  * Verification: Host source/patch checks only; compilation and actual UI remain separately gated.
@@ -34,7 +35,7 @@ import java.util.WeakHashMap;
  */
 public final class CombinedTransitionController {
     private static final WeakHashMap<Activity, CombinedTransitionController> owners = new WeakHashMap<>();
-    private static final String IGNORE = "com.android.launcher3.intent.extra.shortcut.INGORE_LAUNCH_ANIMATION";
+    public static final String IGNORE = "com.ivanchan.launcher.combined.SKIP_ANIMATION";
     // Geometry must remain ready across two observations at least 48 ms apart.
     private static final long SETTLE_MS = 48;
     // This bounds optional visuals, never declares the vendor launch failed.
@@ -69,6 +70,8 @@ public final class CombinedTransitionController {
     }
 
     private static CombinedTransitionController owner(Activity activity) {
+        if (!(activity instanceof LauncherHost))
+            throw new IllegalArgumentException("Launcher Activity must implement LauncherHost");
         CombinedTransitionController value = owners.get(activity);
         if (value == null) { value = new CombinedTransitionController(activity); owners.put(activity, value); }
         return value;
@@ -80,7 +83,7 @@ public final class CombinedTransitionController {
     }
 
     public static boolean interceptLaunch(Activity activity, View source, Intent intent, Object item) {
-        if (Looper.myLooper() != Looper.getMainLooper() || !LauncherAccess.type(activity, LauncherAccess.LAUNCHER))
+        if (Looper.myLooper() != Looper.getMainLooper() || !(activity instanceof LauncherHost))
             return false;
         return owner(activity).intercept(source, intent, item);
     }
@@ -200,7 +203,6 @@ public final class CombinedTransitionController {
         clearVisuals();
         pendingGesture = null;
         if (a == null || tapped == null || intent == null || !eligible(a)
-                || !LauncherAccess.type(tapped, LauncherAccess.BUBBLE)
                 || intent.hasExtra(IGNORE) || !animations(a)) return false;
         if (intent.getComponent() != null && a.getPackageName().equals(intent.getComponent().getPackageName()))
             return false;
@@ -210,10 +212,13 @@ public final class CombinedTransitionController {
                 && a.checkSelfPermission("android.permission.CALL_PHONE") != PackageManager.PERMISSION_GRANTED)
             return false;
         try {
-            if (LauncherAccess.binding(a)) return false;
-            LauncherAccess.Scene scene = LauncherAccess.scene(a, tapped);
-            if (scene == null || !LauncherAccess.visible(tapped)) return false;
-            icon = new IconOverlayView(a, scene.root, tapped, scene.cellHeight);
+            LauncherHost host = (LauncherHost) a;
+            if (host.isTransitionBinding() || !host.shouldAnimateLaunch(tapped, intent, item)) return false;
+            LauncherScene scene = host.captureTransitionScene(tapped);
+            if (scene == null || !LauncherGeometry.visible(tapped)) return false;
+            scene.sourceInStrip = scene.isInStrip(tapped);
+            icon = new IconOverlayView(a, scene.root, tapped, scene.cellHeight,
+                    host.transitionIconBounds(tapped), host.transitionIconDrawable(tapped));
             grid = new SnapshotGridView(scene, tapped);
             root = scene.root; source = tapped; sourceAlpha = tapped.getAlpha();
             pendingIntent = new Intent(intent); pendingItem = item;
@@ -260,8 +265,8 @@ public final class CombinedTransitionController {
         boolean unlock = pendingGesture == null && (UnlockSignalTracker.pending() || (cold && homeIntent));
         if (!unlock && !departed && pendingGesture == null) return;
         try {
-            if (LauncherAccess.binding(a)) return; // F() notifies after actual model completion.
-            root = LauncherAccess.root(a);
+            if (((LauncherHost) a).isTransitionBinding()) return;
+            root = ((LauncherHost) a).transitionRoot();
             if (root == null || !root.isAttachedToWindow()) { root = null; return; }
             long token = ++generation, began = SystemClock.uptimeMillis();
             long[] stable = {0};
@@ -273,12 +278,12 @@ public final class CombinedTransitionController {
                 long now = SystemClock.uptimeMillis();
                 try {
                     boolean ready = (pendingGesture == null ? eligible(current) : gestureEligible(current))
-                            && !LauncherAccess.binding(current)
+                            && !((LauncherHost) current).isTransitionBinding()
                             && root.isLaidOut() && !root.isLayoutRequested();
                     if (!ready || dimensions[0] != root.getWidth() || dimensions[1] != root.getHeight()) {
                         stable[0] = now; dimensions[0] = root.getWidth(); dimensions[1] = root.getHeight();
                     } else if (now - stable[0] >= SETTLE_MS && now - began >= delay) {
-                        LauncherAccess.Scene scene = LauncherAccess.scene(current, null);
+                        LauncherScene scene = ((LauncherHost) current).captureTransitionScene(null);
                         if (scene != null && (!unlock || (scene.home && homeIntent))) {
                             removePreDraw(); removeTimeout();
                             if (animations(current)) {
@@ -329,14 +334,16 @@ public final class CombinedTransitionController {
      * Verification: Nova protocol/source contract tests; real gesture IPC and frames unverified.
      * Visual: System moves the real app and icon surface; only other icons use our grid clock.
      */
-    private void prepareReturnVisuals(Activity current, LauncherAccess.Scene scene, boolean unlock,
+    private void prepareReturnVisuals(Activity current, LauncherScene scene, boolean unlock,
             boolean animateGrid) throws ReflectiveOperationException {
         NovaGestureContract contract = unlock ? null : pendingGesture;
         View landing = contract == null ? null
-                : LauncherAccess.gestureTarget(scene, contract.component, contract.user);
+                : ((LauncherHost) current).findTransitionTarget(scene, contract.component, contract.user);
+        scene.sourceInStrip = scene.isInStrip(landing);
         if (landing != null) {
             try {
-                gestureSurface = NovaGestureSurface.show(current, scene.root, landing, contract,
+                gestureSurface = NovaGestureSurface.show(current, scene.root, landing,
+                        ((LauncherHost) current).transitionReturnBounds(landing), contract,
                         animateGrid && scene.sourceInStrip, this::clearVisuals);
             } catch (ReflectiveOperationException | RuntimeException unavailable) {
                 closeGestureSurface();
@@ -393,7 +400,7 @@ public final class CombinedTransitionController {
                     Math.max(1, rect.width()), Math.max(1, rect.height()));
             if (Build.VERSION.SDK_INT >= 33) options.setSplashScreenStyle(1);
             replaying = true;
-            boolean accepted = LauncherAccess.replay(a, source, pendingIntent, pendingItem);
+            boolean accepted = ((LauncherHost) a).launchFromTransition(source, pendingIntent, pendingItem);
             TransitionDiagnostics.event(accepted ? "vendor_launch_accepted" : "vendor_launch_declined", token);
             if (!accepted) { issued = false; pendingGesture = null; clearVisuals(); }
         } catch (ReflectiveOperationException | RuntimeException failure) {

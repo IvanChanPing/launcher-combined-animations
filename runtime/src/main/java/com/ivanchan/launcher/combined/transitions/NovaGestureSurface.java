@@ -16,7 +16,6 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Build;
 import android.util.AttributeSet;
-import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.SurfaceControl;
 import android.view.SurfaceHolder;
@@ -78,18 +77,18 @@ public final class NovaGestureSurface extends FrameLayout
 
     /** Purpose: Attach the same surface provider branches Nova uses, with target-owned parameters.
      * Invocation: Controller after target resolution, before hiding grid/tray snapshots.
-     * Contract: XML layout_ignoreInsets generates the real target LP subclass; no guessed LP cast
-     * or global window permission is used. Any setup failure restores source state before fallback.
+     * Contract: LauncherHost supplies a fresh view with parent-native layout parameters.
+     * No vendor attribute or global window permission is required. Setup failure restores source state.
      * Verification: Native target layout contracts read; actual window creation awaits compilation/UI.
      */
     static NovaGestureSurface show(Activity activity, ViewGroup host, View target,
-            NovaGestureContract contract, boolean holdForTray, Runnable cancelAll) throws ReflectiveOperationException {
+            RectF artworkBounds, NovaGestureContract contract, boolean holdForTray, Runnable cancelAll)
+            throws ReflectiveOperationException {
         if (Build.VERSION.SDK_INT < 30) throw new IllegalStateException("Gesture contract requires API30");
-        int resource = activity.getResources().getIdentifier("combined_gesture_surface", "layout",
-                activity.getPackageName());
-        if (resource == 0) throw new IllegalStateException("Gesture surface layout missing");
-        NovaGestureSurface view = (NovaGestureSurface) LayoutInflater.from(activity)
-                .inflate(resource, host, false);
+        NovaGestureSurface view = ((LauncherHost) activity).createTransitionSurface(activity, host);
+        if (view == null || view.getParent() != null)
+            throw new IllegalArgumentException("Gesture surface must be fresh and unattached");
+        artworkBounds.roundOut(view.localBounds);
         view.host = host;
         view.target = target;
         view.originalAlpha = target.getAlpha();
@@ -129,13 +128,11 @@ public final class NovaGestureSurface extends FrameLayout
     }
 
     /** Purpose: Record actual icon contents as Nova does, not a recreated Drawable approximation.
-     * Invocation: Before source hiding; local icon bounds for BubbleTextView, full bounds for widgets.
+     * Invocation: Before source hiding; local artwork bounds supplied by LauncherHost.
      * Contract: Recording and alpha restoration are paired even if the target cannot draw.
      * Verification: Picture/crop source contract; hardware drawing requires the real app UI.
      */
     private void recordTarget() throws ReflectiveOperationException {
-        RectF local = LauncherAccess.gestureArtwork(target);
-        local.roundOut(localBounds);
         if (localBounds.isEmpty()) throw new IllegalArgumentException("Empty gesture target");
         if ((long) localBounds.width() * localBounds.height() > 6L * 1024L * 1024L)
             throw new IllegalArgumentException("Gesture target exceeds capture budget");
@@ -165,7 +162,7 @@ public final class NovaGestureSurface extends FrameLayout
             return;
         }
         temporary.set(localBounds);
-        LauncherAccess.toRoot(target, host).mapRect(temporary);
+        LauncherGeometry.toRoot(target, host).mapRect(temporary);
         if (!temporary.equals(position)) {
             position.set(temporary);
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) surface.getLayoutParams();

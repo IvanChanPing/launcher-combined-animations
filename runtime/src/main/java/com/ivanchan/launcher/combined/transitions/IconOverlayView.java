@@ -14,7 +14,7 @@ import android.view.animation.PathInterpolator;
 
 /**
  * Purpose: Nova-derived selected-artwork expansion, independent of the whole-cell flight renderer.
- * Invocation: Created only after drawable state and source-to-host geometry are ready.
+ * Invocation: Created with host-provided local artwork bounds and drawable.
  * Contract: Clone drawable state; never mutate vendor artwork. Adaptive background and foreground
  * keep independent bounds; nonadaptive artwork has no adaptive crop. All tracks use one linear time.
  * Verification: Reference track/geometry source checks; rendered parity is not claimed before UI tests.
@@ -41,15 +41,15 @@ final class IconOverlayView extends View {
     private float outputAlpha = 1f;
     private float radius;
 
-    IconOverlayView(Activity activity, ViewGroup host, View source, float cellHeight)
+    IconOverlayView(Activity activity, ViewGroup host, View source, float cellHeight,
+            RectF artworkBounds, Drawable original)
             throws ReflectiveOperationException {
         super(activity);
         this.host = host;
-        start = LauncherAccess.artwork(source);
-        LauncherAccess.toRoot(source, host).mapRect(start);
+        start = new RectF(artworkBounds);
+        LauncherGeometry.toRoot(source, host).mapRect(start);
         if (start.width() <= 0 || start.height() <= 0)
             throw new IllegalArgumentException("Empty artwork bounds");
-        Drawable original = LauncherAccess.drawable(source);
         if (original == null || original.getConstantState() == null)
             throw new IllegalArgumentException("Drawable has no independent state");
         icon = original.getConstantState().newDrawable(getResources()).mutate();

@@ -6,17 +6,17 @@ downward motion. Diagnosis and correction remain pending; publishing this source
 
 ## Scope and reference boundaries
 
-Original, Android-SDK-only source combines three mapped behaviors. This is not a copy of a
-vendor repository. The fixed reference map is COMBINED_TRANSITION_MAP.md in the sibling
-launcher-phone-os-combined-transitions analysis project (SHA-256
-5507e6937df18238131a9b330034cd1e4f563a645e30a7cd03c6dff5a4e6c3d4).
-The kit below is self-contained; that analysis project is not needed to build.
+The Android-SDK-only runtime combines three animation flows. `LauncherHost` supplies host
+behavior and `LauncherScene` supplies explicit view/cell geometry. The core contains no
+launcher-specific classes, model fields or reflection. See [Host API](HOST_API.md) for integration.
 
 ## Owner map
 
 | Owner | Responsibility |
 | --- | --- |
-| LauncherAccess | Exact 1.4.1 public methods, current surface, cell indices, matrix/scroll geometry |
+| LauncherHost | Host-supplied launch, layout, artwork and app/profile lookup |
+| LauncherScene | Explicit grid cells, anchor and dock/indicator views |
+| LauncherGeometry | Android View matrix/scroll coordinate mapping |
 | MotionMath | Ring selection, timing, factor-four deceleration and sparse-layout extension |
 | SnapshotGridView | Whole icon/label/badge/folder snapshots; dock and indicator strips |
 | IconOverlayView | Independent adaptive layers, nonadaptive fallback, Nova tracks and crop |
@@ -28,10 +28,10 @@ The kit below is self-contained; that analysis project is not needed to build.
 
 ## Ordered flow: open
 
-1. BaseDraggingActivity.j0 performs its original safe-mode rejection.
+1. The host launcher performs its original safe-mode and launch-policy checks.
 2. The inserted interceptor checks the launcher, source, model, focus, lock, animation setting,
    same-package destination and CALL permission gate. Unsupported paths stay native.
-3. LauncherAccess selects the actual visible folder, search/library, or current workspace plus
+3. LauncherHost supplies the actual visible folder, search/library, or current workspace plus
    dock/indicator. Whole-cell snapshots include labels, badges and folder artwork.
 4. The selected drawable's independent constant state and mapped source rectangle are prepared.
    A root overlay draws grid snapshots below the separate selected artwork. No ancestor clipping
@@ -43,7 +43,7 @@ The kit below is self-contained; that analysis project is not needed to build.
    Alpha waits 25 ms and fades for 50/40 ms.
 7. When alpha is strictly below .13, replay ownership is claimed once. ActivityOptions scale-up
    uses the live artwork rectangle in the same root coordinate space. API 33+ requests icon
-   splash style. The original Launcher.j0 remains authoritative for flags, source bounds,
+   splash style. The host's launchFromTransition callback remains authoritative for flags, source bounds,
    shortcuts, profiles, analytics, permission behavior and exception handling.
 8. Duplicate taps are consumed while this open owns the gesture. An issued open continues through
    pause while Home is visible; stop, configuration, destruction and completion remove overlays,
@@ -63,9 +63,9 @@ Ordered protocol (local Android parcel/Binder messages, not a network protocol):
 | --- | --- | --- |
 | 1 | Gesture system starts HOME | Intent bundle gesture_nav_contract_v1 contains android.intent.extra.COMPONENT_NAME (ComponentName), android.intent.extra.USER (UserHandle), android.intent.extra.REMOTE_CALLBACK (Message with non-null replyTo). |
 | 2 | Launcher consumes request | API 30+ only; remove the extra exactly once; retain component/user/callback, not a guessed last-launched app. Nova also has a preference gate. |
-| 3 | Resolve settled target | Nova FloatingSurfaceView.Z calls L0(0,user,package), then L0(4,user,package): app before widget; hotseat before workspace. Its platform-specific layout lookup is adapted to this target's e0 metadata and containers. |
+| 3 | Resolve settled target | LauncherHost.findTransitionTarget resolves the supplied component and user. The host owns app/widget metadata and dock/workspace priority; core reads no private model fields. |
 | 4 | Record icon surface | Save source visibility; record only its artwork bounds in Picture; hide the real source; translucent SurfaceView, setZOrderOnTop(true), hardware Canvas; update destination on global layout. |
-| 5 | Attach by API branch | Nova uses an application-panel WindowManager view on API30 (copied window params, token null, type1000, flags OR0x40018). API31+ adds a child to DragLayer. The port uses target-native layout params and ignore duplicate insets. |
+| 5 | Attach by API branch | Nova uses an application-panel WindowManager view on API30 (copied window params, token null, type1000, flags OR0x40018). API31+ adds a child to the host root. LauncherHost.createTransitionSurface supplies parent-native parameters and any custom inset policy. |
 | 6 | Reply to system | Copy the original Message (preserves its routing token); set Bundle with gesture_nav_contract_icon_position (RectF), gesture_nav_contract_surface_control (SurfaceControl), gesture_nav_contract_finish_callback (Message). Send via original replyTo. Resend when surface is created / destination changes. |
 | 7 | System owns movement | FallbackSwipeHandler accepts the destination and SurfaceControl and moves the actual task plus supplied icon surface. The launcher does not run a reverse icon animator or invent its duration. |
 | 8 | Finish and cleanup | System sends finish Message what=0. Nova restores source and removes surface after two display-frame intervals. Nova also has focus-gain400ms cleanup for SDK<32 or SDK32 with PREVIEW_SDK_INT<1; pause/destroy/touch cancel old surfaces. |
@@ -96,7 +96,7 @@ Primary cross-checks:
 2. Resume/focus/model-ready/new-Home-intent converge on one eligibility gate: resumed, focused,
    interactive, unlocked, actual root attached, model binding complete.
 3. Cold entry requires a HOME intent. Unlock requires an actual Home scene; it never substitutes
-   selected-icon growth. Loading does not consume its token. F() provides actual model-ready notification.
+   selected-icon growth. Loading does not consume its token. The host provides model-ready notification.
 4. Layout readiness must agree across observations 48 ms apart. Reference entry delays are
    60 ms for unlock/cold and 35 ms for return. A 1500 ms optional-visual deadline avoids retaining
    an unrendered root forever; this is not a terminal app failure.
@@ -132,27 +132,16 @@ the changing long axis; foreground retains normalized layer bounds with centered
 offset. Radius independently approaches32dp (0 in multi-window). Nonadaptive artwork does not
 receive adaptive clipping. Target artwork bounds and every ancestor matrix/scroll supply origin.
 
-## Target hooks and porting
+## Host integration
 
-Patch exactly the supported original. Launcher.X supplies one-shot options before its G1 fallback.
-BaseDraggingActivity.j0 is intercepted after :cond_0 safe-mode rejection.
-LauncherApplication.onCreate installs the receiver/diagnostics after Application.onCreate.
+Implement LauncherHost on the Activity and forward the lifecycle callbacks described in
+[Host API](HOST_API.md). `interceptLaunch` accepts any Activity implementing that interface;
+`shouldAnimateLaunch` controls host-specific exclusions. The host supplies safe launch and consumes
+one-shot ActivityOptions during replay. No library class replacement or vendor patcher is required.
 
-Launcher create/start/resume/newIntent/focus/configuration/F callbacks run before each normal
-return, after the target body. Pause/stop/destroy hooks run at method entry; an issued open survives pause, while stop/destroy clean up.
-Range invokes avoid high-register encoding errors in large obfuscated methods. onNewIntent captures
-the HOME bit and consumes the gesture contract at entry because the target overwrites p1; its post-body callback takes only the
-Activity. Focus is also read from the Activity after the target body, not its reused p1 register.
-An issued external launch or a real gesture contract permits return preparation. Protocol handling
-does not wait for Home focus: the system needs the destination before its outgoing animation ends.
-Even with the grid animation disabled, a valid contract is answered without running grid motion.
-All vendor bodies, Java component names, product identifiers and licensing logic are retained.
-Manifest package/authorities/self-permissions change together; relative class names are
-qualified with the original Java package. Apktool rename lives inside packageInfo.
-
-For another launcher, map its safe launch gate, options owner, root, binding callback, current
-surface, cell layout and artwork access before replacing LauncherAccess or the patcher anchors.
-Do not replace safe launch with bare startActivity.
+An issued external launch or a real gesture contract permits return preparation. Contract handling
+does not wait for Home focus. With grid animation disabled, a valid contract is still answered.
+Activity ownership remains weak, and no adapter object separately retains the Activity.
 
 ## Diagnostics and privacy
 

@@ -1,5 +1,21 @@
 # Pre-build risk pass — 2026-10-03
 
+## 2026-10-04 — Host-independent runtime
+
+Before editing: all nine runtime owners were read. LauncherAccess contains the vendor class,
+method, field, grid and profile mappings; the controller also checks vendor types/intent flags,
+and gesture XML requires a vendor attribute. These are the complete host-bound entry points.
+Replace them with LauncherHost (implemented by the Activity), LauncherScene and geometry helpers.
+Keep the Activity weakly referenced: no host object is stored separately by the controller.
+Host callbacks supply safe launch, artwork, layout/model readiness, scene and return identity.
+Validate scene geometry before hiding views. Keep native fallback, cancellation generations,
+surface finish and snapshot restoration unchanged; do not tune motion or add terminal decisions.
+Bundle a plain surface layout; custom parents may override its factory to supply native parameters.
+Source checks must reject vendor names/reflection in runtime and cover two unrelated host classes.
+No new logging is added; existing bounded automatic diagnostics remain unchanged.
+Android compilation is not authorized. Java parsing and source tests cannot establish device motion.
+The known expansion/direction failure is outside this portability change.
+
 ## Verified source contracts
 
 - Exact original base and both split hashes are pinned; canonical decode is tied to these inputs.

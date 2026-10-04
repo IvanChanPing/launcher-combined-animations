@@ -14,6 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "launcher-phone-os-combined"
+rootProject.name = "launcher-combined-animations"
 include(":runtime")
-
