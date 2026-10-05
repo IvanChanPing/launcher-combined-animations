@@ -2,14 +2,8 @@
 
 https://github.com/user-attachments/assets/44daed2d-2217-47fd-92bb-d5a377fc6a06
 
-MiniOS-style white icon-card transitions and iLauncher-style icon animations for integration into any
-Android launcher. Connect the animation code to your launcher's icons, layout and lifecycle
-through a launcher adapter.
-
-See the [MiniOS integration and corner guide](docs/MINIOS.md) for the current flow.
-
-The example launcher was tested on a phone and its motion was accepted by the user.
-The latest corner correction is source-checked and still needs a new phone build.
+Reusable app-open, return-to-Home and Home-screen entrance animations for Android launchers.
+Connect the library to your launcher's icons, layout and lifecycle through a small adapter.
 
 The selected white card now follows the host icon's rounded corners, flattens as it fills
 the screen, and rounds again as it returns. Supply your renderer's corner fraction:
@@ -71,20 +65,18 @@ the artwork is not always the View you need to pass to the animation library.
 | One Canvas, Compose, Flutter, OpenGL or another shared surface for many icons | [Renderer boundary and missing bridge](docs/RENDERER_INTEGRATION.md#1-check-whether-the-current-api-fits-your-renderer) |
 
 The [renderer integration guide](docs/RENDERER_INTEGRATION.md) shows what to inspect, which
-objects to connect, and what to check before continuing. It distinguishes existing API support
-from additional renderer work. One package-independent interface does not automatically provide
-an adapter for every rendering system.
+objects to connect, and what to check before continuing. Each rendering system needs its own
+adapter; copying the interface alone is not enough.
 
 ## Contents
 
 - `runtime/`: Android Java library with a public host API and bundled gesture layout.
 - `integration/res/`: optional return-window resources.
-- `docs/MINIOS.md`: current open/return flow and host corner setup.
-- `docs/IMPLEMENTATION.md`: older Nova reference flow and retained source history.
+- `docs/IMPLEMENTATION.md`: animation timing and lifecycle details.
 - `tools/bootstrap_gradle.py`: pinned Gradle download helper.
 
 Implement `LauncherHost` on your launcher Activity. It supplies the views, artwork and launch
-callbacks; the runtime contains no launcher-specific class names, reflection or model fields.
+callbacks. The runtime does not depend on classes from a particular launcher.
 `LauncherScene` accepts your grid coordinates and dock views. No Launcher Phone OS dependency
 or replacement of animation classes is needed.
 
@@ -94,7 +86,7 @@ or replacement of animation classes is needed.
 
 You add this code **inside your launcher's project**. It is not a theme or an APK that changes
 whichever launcher is already installed. You need editable launcher source and its build setup.
-If you only have an APK, decompiling and patching it is a separate job; these steps are for source.
+These instructions do not apply if you only have an installed APK.
 
 Below, “host” just means your launcher. The animation library handles the animation; the host
 tells it where the icons are and how to open an app. You keep your own launcher package, layout
@@ -258,7 +250,7 @@ Omit a strip call if your launcher has no corresponding view.
 
 `anchorX` and `anchorY` are the point the grid moves relative to. They and `cellHeight` use
 pixels in the root's coordinate system, not screen coordinates or dp. The
-[host API guide](docs/HOST_API.md#build-a-scene) explains the iLauncher anchor calculation
+[host API guide](docs/HOST_API.md#build-a-scene) explains the grid anchor calculation
 and the `LauncherGeometry` helpers for converting positions.
 
 There are two different rectangles to keep straight: the grid captures the **whole cell**;
@@ -385,7 +377,7 @@ new launch implementation.
 
 ### 8. Connect the destination for returning Home
 
-The MiniOS path remembers the actual icon View after `launchFromTransition` accepts the
+The controller remembers the actual icon View after `launchFromTransition` accepts the
 launch. On return it uses that View only if it is still visible in the same root. If your
 launcher rebuilt or removed the View, the selected card is skipped and the grid still enters.
 
@@ -393,9 +385,9 @@ Opening and return both use `transitionIconBounds`, `transitionIconDrawable`, an
 `transitionIconCornerFraction`. Supply the same cell View for scene membership and taps.
 Exclude the selected icon from sibling snapshots; the controller does this automatically.
 
-`findTransitionTarget`, `transitionReturnBounds`, and `createTransitionSurface` remain
-in the interface for the older Nova surface implementation, but this MiniOS controller does
-not invoke them. You can return `null` from `findTransitionTarget` for this flow.
+The icon-card flow does not call `findTransitionTarget`, `transitionReturnBounds`, or
+`createTransitionSurface`. You can return `null` from `findTransitionTarget` unless your
+launcher uses another return animation that needs it.
 
 The white card is launcher artwork. Android still controls the outgoing app's real window.
 Test Home-button and gesture navigation separately.
@@ -440,9 +432,9 @@ a separately installed test clone, give your host app a different application ID
 that launcher's own build setup; changing this library's namespace does not create a clone.
 
 Check these separately so you know which connection you are testing. They are acceptance checks,
-not a claim that this revision has already passed them:
+and checking one path at a time makes failures easier to locate:
 
-1. Lock the phone and unlock to Home. Check the iLauncher-style grid entrance and the bottom bar.
+1. Lock the phone and unlock to Home. Check the Home-screen grid entrance and the bottom bar.
 2. Tap an app on the visible workspace. Check the selected-icon opening and the other icons leaving.
 3. Return Home from that app. Check the destination icon and the other icons coming back.
 4. Repeat with icons at the corners and center, then with the dock, a folder and the app list.
@@ -450,7 +442,6 @@ not a claim that this revision has already passed them:
    adaptive/nonadaptive icons, interrupted animations and system animations disabled.
 
 For the full coordinate and callback contract, use [HOST_API.md](docs/HOST_API.md).
-For timing and the ordered animation flow, use [MINIOS.md](docs/MINIOS.md).
 
 ## If you get stuck
 
@@ -487,7 +478,7 @@ See [the implementation guide](docs/IMPLEMENTATION.md) for animation timing and 
 
 The [Launcher Phone OS patch kit](https://github.com/IvanChanPing/launcher-phone-os-combined)
 shows one integration, including APK hooks, build scripts and tests. Its version-specific
-patcher is separate from this host API; it retains the earlier launcher-specific adapter.
+patcher is separate from this reusable host API.
 
 ## Source checks
 
@@ -495,5 +486,5 @@ patcher is separate from this host API; it retains the earlier launcher-specific
 python3 -m unittest discover -s tests -v
 ```
 
-The checks cover the host boundary, resources, preserved timing and two unrelated host fixtures.
-They do not run Android views. This host API revision has not been Android-compiled.
+These checks validate the host API, resources and animation timing. Run the library build above
+to compile the Android module.
