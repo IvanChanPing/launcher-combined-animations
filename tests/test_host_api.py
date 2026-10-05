@@ -38,8 +38,8 @@ class HostApiTest(unittest.TestCase):
     def test_controller_uses_host_callbacks(self):
         source = self.sources['CombinedTransitionController.java']
         for method in ('transitionRoot', 'isTransitionBinding', 'captureTransitionScene',
-                       'shouldAnimateLaunch', 'launchFromTransition', 'findTransitionTarget',
-                       'transitionIconBounds', 'transitionIconDrawable', 'transitionReturnBounds'):
+                       'shouldAnimateLaunch', 'launchFromTransition',
+                       'transitionIconBounds', 'transitionIconDrawable'):
             self.assertIn('.' + method + '(', source)
         self.assertIn('activity instanceof LauncherHost', source)
         self.assertIn('WeakReference<Activity>', source)
@@ -49,7 +49,7 @@ class HostApiTest(unittest.TestCase):
         icon = self.sources['IconOverlayView.java']
         surface = self.sources['NovaGestureSurface.java']
         self.assertIn('RectF artworkBounds, Drawable original', icon)
-        self.assertIn('start = new RectF(artworkBounds)', icon)
+        self.assertIn('RectF bounds = new RectF(artworkBounds)', icon)
         self.assertIn('artworkBounds.roundOut(view.localBounds)', surface)
         self.assertIn('.createTransitionSurface(activity, host)', surface)
         self.assertNotIn('getIdentifier(', surface)

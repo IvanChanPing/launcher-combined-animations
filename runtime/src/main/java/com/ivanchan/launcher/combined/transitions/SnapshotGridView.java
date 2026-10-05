@@ -48,10 +48,14 @@ final class SnapshotGridView extends View {
         duration = MotionMath.sceneDuration(scene.maxRing);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         try {
+            // Other cells retain their labels/badges because capture calls View.draw(). The
+            // selected cell is skipped entirely; its artwork is drawn by IconOverlayView instead.
             for (LauncherScene.Item item : scene.items)
                 if (item.view != selected) capture(item.view, item.matrix, item.ring, false);
             float alpha = selected == null ? 1f : selected.getAlpha();
             try {
+                // A dock is one snapshot. Temporarily suppress its selected child so the dock
+                // bitmap cannot contain a second copy of the expanding artwork or its cell label.
                 if (selected != null && scene.sourceInStrip) selected.setAlpha(0f);
                 for (View strip : scene.strips) {
                     // iLauncher starts the group at the viewport bottom. The target dock floats

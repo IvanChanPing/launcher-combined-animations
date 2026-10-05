@@ -71,6 +71,8 @@ public final class CombinedTransitionController {
     }
 
     private static CombinedTransitionController owner(Activity activity) {
+        if (!(activity instanceof LauncherHost))
+            throw new IllegalArgumentException("Launcher Activity must implement LauncherHost");
         CombinedTransitionController value = owners.get(activity);
         if (value == null) { value = new CombinedTransitionController(activity); owners.put(activity, value); }
         return value;
@@ -213,6 +215,7 @@ public final class CombinedTransitionController {
             if (((LauncherHost) a).isTransitionBinding()) return false;
             LauncherScene scene = ((LauncherHost) a).captureTransitionScene(tapped);
             if (scene == null || !LauncherGeometry.visible(tapped)) return false;
+            scene.sourceInStrip = scene.isInStrip(tapped);
             icon = new IconOverlayView(a, scene.root, tapped, scene.cellHeight,
                     ((LauncherHost) a).transitionIconBounds(tapped), ((LauncherHost) a).transitionIconDrawable(tapped));
             grid = new SnapshotGridView(scene, tapped);

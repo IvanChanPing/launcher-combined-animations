@@ -2,12 +2,28 @@
 
 https://github.com/user-attachments/assets/44daed2d-2217-47fd-92bb-d5a377fc6a06
 
-Nova-style app transitions and iLauncher-style icon animations for integration into any
+MiniOS-style white icon-card transitions and iLauncher-style icon animations for integration into any
 Android launcher. Connect the animation code to your launcher's icons, layout and lifecycle
 through a launcher adapter.
 
-Known issue: selected-icon expansion and return direction need correction. This is integration
-source, not a finished, device-verified animation release.
+See the [MiniOS integration and corner guide](docs/MINIOS.md) for the current flow.
+
+The example launcher was tested on a phone and its motion was accepted by the user.
+The latest corner correction is source-checked and still needs a new phone build.
+
+The selected white card now follows the host icon's rounded corners, flattens as it fills
+the screen, and rounds again as it returns. Supply your renderer's corner fraction:
+
+```java
+@Override
+public float transitionIconCornerFraction(View icon) {
+    return 0.25f; // radius / artwork width: use your renderer's real value
+}
+```
+
+Use 0 for square artwork and 0.5 for a circle within square artwork. This is a per-icon
+callback, so icon packs and different surfaces can provide different values. The default
+is 0. Keep supplying artwork bounds and drawable through the existing host methods.
 
 ## Before you start
 
@@ -16,7 +32,7 @@ building your launcher and checking the result on a phone. The three paths to ch
 
 - Unlock to Home: the home-screen icons enter, with the bottom app bar moving separately.
 - Open an app: the tapped icon animates while the other icons leave.
-- Return Home: Android's supplied return transition connects to the destination icon while
+- Return Home: the remembered app icon's white card shrinks back into its cell while
   the other icons enter again.
 
 You need:
@@ -63,7 +79,8 @@ an adapter for every rendering system.
 
 - `runtime/`: Android Java library with a public host API and bundled gesture layout.
 - `integration/res/`: optional return-window resources.
-- `docs/IMPLEMENTATION.md`: complete ordered flow, timing, coordinates, lifecycle hooks, and test matrix.
+- `docs/MINIOS.md`: current open/return flow and host corner setup.
+- `docs/IMPLEMENTATION.md`: older Nova reference flow and retained source history.
 - `tools/bootstrap_gradle.py`: pinned Gradle download helper.
 
 Implement `LauncherHost` on your launcher Activity. It supplies the views, artwork and launch
@@ -303,7 +320,7 @@ protected void onNewIntent(Intent intent) {
 ```
 
 Merge those calls into your existing method; do not delete its Home handling. The first call
-reads Android's return-transition information before the launcher processes the intent.
+records the Home action before the launcher processes the intent.
 The second tells the controller that the launcher has finished handling it.
 
 Before continuing, check both sides of the connection: Application initialization calls
@@ -368,23 +385,20 @@ new launch implementation.
 
 ### 8. Connect the destination for returning Home
 
-Implement `findTransitionTarget` by looking up the supplied app `component` and `user` in your
-currently visible icons. Search the dock first, then the visible workspace. Match both the app
-and its profile; a work-profile icon is not interchangeable with its personal-profile copy.
+The MiniOS path remembers the actual icon View after `launchFromTransition` accepts the
+launch. On return it uses that View only if it is still visible in the same root. If your
+launcher rebuilt or removed the View, the selected card is skipped and the grid still enters.
 
-Return the real destination View, not a stored screenshot or an icon on an off-screen page.
-Return `null` when there is no visible match. By default, return artwork uses the same local
-bounds as opening; override `transitionReturnBounds` if you support a different target such
-as a widget.
+Opening and return both use `transitionIconBounds`, `transitionIconDrawable`, and
+`transitionIconCornerFraction`. Supply the same cell View for scene membership and taps.
+Exclude the selected icon from sibling snapshots; the controller does this automatically.
 
-Shrink-to-icon return uses the transition contract supplied by Android's navigation system.
-Connecting this method does not give the launcher control over another app's window when
-Android supplies no contract. Test Home-button and gesture navigation separately.
+`findTransitionTarget`, `transitionReturnBounds`, and `createTransitionSurface` remain
+in the interface for the older Nova surface implementation, but this MiniOS controller does
+not invoke them. You can return `null` from `findTransitionTarget` for this flow.
 
-The module already includes the gesture-surface layout. Only override `createTransitionSurface`
-if your root needs special inset handling or layout parameters; return a fresh, unattached
-`NovaGestureSurface` using that parent's layout-parameter type. The return-window XML in
-`integration/res/` is an optional non-gesture fallback, not a substitute for the contract.
+The white card is launcher artwork. Android still controls the outgoing app's real window.
+Test Home-button and gesture navigation separately.
 
 ### 9. Add the diagnostic permissions
 
@@ -436,7 +450,7 @@ not a claim that this revision has already passed them:
    adaptive/nonadaptive icons, interrupted animations and system animations disabled.
 
 For the full coordinate and callback contract, use [HOST_API.md](docs/HOST_API.md).
-For timing and the ordered animation flow, use [IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
+For timing and the ordered animation flow, use [MINIOS.md](docs/MINIOS.md).
 
 ## If you get stuck
 
@@ -451,10 +465,10 @@ does not identify its cause.
 | `Duplicate scene icon`, `Strip contains a grid icon` or `Overlapping scene strips` | Check scene membership in step 5; a dock child must not also be a grid item. |
 | The app opens twice | Trace the interceptor's `true` branch and `launchFromTransition` in step 7; there must be one launch handoff. |
 | Unlock entrance is absent | Check Application installation, the binding flag, model-ready notification and Activity callbacks in step 6. |
-| Home return has no destination icon | Check component/profile matching, target visibility, and Home-intent forwarding in steps 6 and 8; also check whether Android supplied a return contract. |
+| Home return has no destination icon | Check that the opened cell remains visible in the same root and that Home-intent/lifecycle forwarding is complete. |
 
-The known selected-icon motion issue at the start of this README is separate from these
-integration checks. Do not assume changing your adapter will resolve that library issue.
+If the white card has square corners over a rounded icon, supply the actual corner fraction
+through `transitionIconCornerFraction` and verify artwork bounds exclude the label.
 
 ## Build the library on its own
 

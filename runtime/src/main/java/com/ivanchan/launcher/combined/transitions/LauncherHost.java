@@ -25,6 +25,15 @@ public interface LauncherHost {
     LauncherScene captureTransitionScene(View selected) throws ReflectiveOperationException;
     RectF transitionIconBounds(View icon) throws ReflectiveOperationException;
     Drawable transitionIconDrawable(View icon) throws ReflectiveOperationException;
+    /**
+     * Purpose: Match the selected card to this launcher's rendered icon corners.
+     * Invocation: Open/return card construction. Contract: Fraction of artwork width/height,
+     * finite from 0 to .5; 0 is square, .25 rounded square, .5 circular for square artwork.
+     * Supply the renderer's actual value; the default leaves unknown artwork square.
+     * Verification: Endpoint math and source checks; host phone test still required.
+     * Visual: Card starts and lands rounded, with flat corners at full screen.
+     */
+    default float transitionIconCornerFraction(View icon) { return 0f; }
     boolean launchFromTransition(View icon, Intent intent, Object item) throws ReflectiveOperationException;
     View findTransitionTarget(LauncherScene scene, ComponentName component, UserHandle user)
             throws ReflectiveOperationException;
