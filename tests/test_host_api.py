@@ -72,7 +72,7 @@ class HostApiTest(unittest.TestCase):
 
     def test_motion_and_wire_contract_unchanged(self):
         expected = {
-            'MotionMath.java': 'd045f4dca4ea28da0b9317f8b8f742477baab26814d9243b010dad8602dd649e',
+            'MotionMath.java': 'c84f31f51ae1896aed094df27b79b3b899301b33b106e47475726660717f5c62',
             'NovaGestureContract.java': 'b7e1dae2a67befaa24f883a7f4fafad2360ef65433721e9a5144eddfc158c2cf',
         }
         for name, digest in expected.items():
@@ -88,17 +88,22 @@ class HostApiTest(unittest.TestCase):
         self.assertIn('old.removeAllUpdateListeners(); old.removeAllListeners(); old.cancel();', source)
         self.assertIn('source.setAlpha(sourceAlpha)', source)
 
-    def test_return_card_uses_grid_duration_and_native_start(self):
+    def test_return_card_uses_one_grid_clock(self):
         controller = self.sources['CombinedTransitionController.java']
         overlay = self.sources['IconOverlayView.java']
         motion = self.sources['MiniOsAnimator.java']
-        self.assertIn("int duration = grid.duration;", controller)
-        self.assertIn("if (token == generation) runClock(duration, true, token)", controller)
-        self.assertIn("else runClock(grid.duration, true, token)", controller)
+        self.assertIn("runClock(grid.duration, true, token)", controller)
+        self.assertIn("if (icon != null) icon.applyReturnRemaining(1f)", controller)
+        update = controller.split("clock.addUpdateListener(value -> {", 1)[1].split("});", 1)[0]
+        self.assertIn("if (token != generation) return;", update)
+        self.assertIn("grid.progress(elapsed)", update)
+        self.assertIn("icon.applyReturnRemaining(grid.cardRemaining(elapsed))", update)
+        self.assertNotIn("icon.returnHome(", controller)
         preparation = controller.split("private void prepareReturnVisuals(", 1)[1].split(
             "private void closeGestureSurface()", 1)[0]
         self.assertNotIn("returnHome(", preparation)
-        self.assertIn("duration, startGrid);", overlay)
+        self.assertIn("void applyReturnRemaining(float remaining)", overlay)
+        self.assertNotIn("motion.returnHome(", overlay)
         self.assertIn(".setDuration(duration).setStartDelay(0).withStartAction(startGrid)", motion)
         self.assertIn("DEFAULT_DURATION_ANIMATION, null);", motion)
         self.assertIn(".setListener(new MiniOsReturnListener(this)).start();", motion)
