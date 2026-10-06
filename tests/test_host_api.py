@@ -88,6 +88,21 @@ class HostApiTest(unittest.TestCase):
         self.assertIn('old.removeAllUpdateListeners(); old.removeAllListeners(); old.cancel();', source)
         self.assertIn('source.setAlpha(sourceAlpha)', source)
 
+    def test_return_card_uses_grid_duration_and_native_start(self):
+        controller = self.sources['CombinedTransitionController.java']
+        overlay = self.sources['IconOverlayView.java']
+        motion = self.sources['MiniOsAnimator.java']
+        self.assertIn("int duration = grid.duration;", controller)
+        self.assertIn("if (token == generation) runClock(duration, true, token)", controller)
+        self.assertIn("else runClock(grid.duration, true, token)", controller)
+        preparation = controller.split("private void prepareReturnVisuals(", 1)[1].split(
+            "private void closeGestureSurface()", 1)[0]
+        self.assertNotIn("returnHome(", preparation)
+        self.assertIn("duration, startGrid);", overlay)
+        self.assertIn(".setDuration(duration).setStartDelay(0).withStartAction(startGrid)", motion)
+        self.assertIn("DEFAULT_DURATION_ANIMATION, null);", motion)
+        self.assertIn(".setListener(new MiniOsReturnListener(this)).start();", motion)
+
 
 if __name__ == '__main__':
     unittest.main()
