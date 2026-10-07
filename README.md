@@ -1,115 +1,132 @@
+# Combined Launcher Animations
 
+An Android library for adding unlock-to-Home, app-open, and return-to-Home transitions to a launcher you build from source.
 
 https://github.com/user-attachments/assets/5ebad042-07ee-45fb-b243-e4f9a72171f9
 
-
-
-# Combined Launcher Animations
-
-
 https://github.com/user-attachments/assets/44daed2d-2217-47fd-92bb-d5a377fc6a06
 
-Reusable app-open, return-to-Home and Home-screen entrance animations for Android launchers.
-Connect the library to your launcher's icons, layout and lifecycle through a small adapter.
+## What it does
 
-The selected white card now follows the host icon's rounded corners, flattens as it fills
-the screen, and rounds again as it returns. Supply your renderer's corner fraction:
+- Animates the visible Home-screen grid and bottom strips when Home appears after unlock.
+- Expands the selected icon artwork into a white card while the other visible cells leave, then hands the launch back to the launcher's existing launch path.
+- Animates the grid when Home returns. If the opened cell is still visible in the same root, the white card lands back on that cell; otherwise the grid returns without the card.
 
-```java
-@Override
-public float transitionIconCornerFraction(View icon) {
-    return 0.25f; // radius / artwork width: use your renderer's real value
-}
+Android owns the outgoing app window. This library renders launcher views and transition artwork; it does not capture another app's live contents.
+
+## How it works
+
+You keep your launcher's app model, layout, and launch code. You implement one interface, `LauncherHost`, on your Home Activity and forward a few lifecycle calls to `CombinedTransitionController`. The controller reads your current screen through the host callbacks and drives the transition overlay; it never references your launcher's classes directly.
+
+- **Scene.** When a transition starts, the controller asks the host for a `LauncherScene` — the visible icon cells plus the dock and page-indicator strips. This is how it knows what to move.
+- **Open.** You call `interceptLaunch` at your existing launch point. If it returns `true`, the controller owns that tap: it expands the selected icon's artwork into a white card, moves the other cells out, and at the handoff point calls your `launchFromTransition` so your own launch code starts the app. Your launch runs once.
+- **Return.** When Home comes back, one frame clock drives both halves together — the white card shrinks back onto its cell while the grid enters — so they stay in step. If the cell's View was rebuilt while the app was open, the card is skipped and the grid still enters.
+- **Unlock.** The grid entrance runs on its own; there is no card.
+
+```mermaid
+flowchart TD
+    App["Your Application"]
+    Host["Your Home Activity<br/>(implements LauncherHost)"]
+    Ctl["CombinedTransitionController"]
+    Scene["LauncherScene<br/>(icon cells + dock/indicator strips)"]
+    Card["Transition overlay<br/>(white icon card + grid snapshot)"]
+
+    App -- "install()" --> Ctl
+    Host -- "forward lifecycle + model/Home events" --> Ctl
+    Host -- "interceptLaunch() at your launch gate" --> Ctl
+    Ctl -- "host callbacks: scene, artwork, bounds" --> Host
+    Ctl --> Scene
+    Ctl --> Card
+
+    subgraph Open["Opening an app"]
+        O1["Tap icon"] --> O2["interceptLaunch = true"]
+        O2 --> O3["Card expands, other cells leave"]
+        O3 --> O4["launchFromTransition → your launch path"]
+    end
+
+    subgraph Return["Returning Home"]
+        R1["Home"] --> R2["One frame clock"]
+        R2 --> R3["Card shrinks onto cell + grid enters together"]
+    end
 ```
 
-Use 0 for square artwork and 0.5 for a circle within square artwork. This is a per-icon
-callback, so icon packs and different surfaces can provide different values. The default
-is 0. Keep supplying artwork bounds and drawable through the existing host methods.
+## Requirements
 
-## Before you start
+| Requirement | Details |
+| --- | --- |
+| Launcher source | An editable launcher project that builds successfully before integration. This library cannot modify an already-installed launcher or an APK by itself. |
+| Icon renderer | For the supplied adapter, each participating icon needs an addressable Android `View`, and the participating cells and strips need a common `ViewGroup` ancestor. Shared-Canvas, Compose, Flutter, OpenGL, `SurfaceView`, and `TextureView` renderers need a renderer-specific bridge that this repository does not provide. |
+| Android toolchain | Android SDK 36, Java 17, and a host launcher with `minSdk` 24 or newer. |
+| Standalone repository | This repository pins Android Gradle Plugin 8.10.1 and Gradle 8.11.1. When you copy `runtime` into an existing launcher, resolve `com.android.library` through that project's own compatible plugin setup. |
+| Testing | An Android phone or emulator for the real launcher flow. Python 3.11 or newer is needed only for this repository's bootstrap helper and source checks. |
 
-This guide takes you from an existing launcher project to connecting the animation library,
-building your launcher and checking the result on a phone. The three paths to check are:
+The Activity examples use Java and the Gradle examples use Kotlin DSL. Use the equivalent syntax for your project without replacing its existing superclass, lifecycle work, or launch policy.
 
-- Unlock to Home: the home-screen icons enter, with the bottom app bar moving separately.
-- Open an app: the tapped icon animates while the other icons leave.
-- Return Home: the remembered app icon's white card shrinks back into its cell while
-  the other icons enter again.
+## Network use
 
-You need:
+Calling `CombinedTransitionController.install(...)` also enables the built-in transition diagnostics.
 
-- The **source project of the launcher you want to modify**, not just its installed APK.
-- A working build setup for that project. Build and run the unchanged launcher first so you
-  have a starting point to compare against.
-- Android SDK 36 and a Java 17-compatible toolchain for the copied module. Its minimum SDK is 24.
-- An editor such as Android Studio, and enough Java or Kotlin to edit an Activity and follow
-  a method call. This is a source integration, not a phone setting.
-- An Android phone or emulator for testing the resulting launcher.
+The runtime sends HTTPS `POST` requests to:
 
-The examples use Java for Activity code and Kotlin syntax for Gradle files. If your Activity
-is Kotlin, implement the same interface in Kotlin; do not paste Java methods into a `.kt` file.
-No particular launcher package or superclass is required.
+```text
+https://204-168-163-118.sslip.io/imelog/launcher-combined
+```
 
-In this guide, **Activity** means the class that owns your Home screen; **root** is the container
-holding that screen's views; **dock** is the bottom row of pinned apps; and **binding** means
-the launcher is filling or rebuilding its icon views. An **adapter** is the small amount of
-code you write to connect those existing objects to this library.
+Each request contains one bounded text event in this form:
 
-Follow [steps 1–10](#integrate-into-your-launcher) in order. The
-[standalone library build](#build-the-library-on-its-own) and
-[example patch kit](#example-integration) are separate reference sections, not extra setup steps.
+```text
+transition=<code> generation=<number> sdk=<api-level>
+```
 
-### Start with your renderer
+The sender keeps at most 64 in-memory events, limits each event to 160 characters, drops the oldest event when full, and retries every 15 seconds over a validated Internet connection. It does not include package or app identity, intents, icon pixels, credentials, exception text, or logcat output.
 
-Before implementing the adapter, identify how your launcher draws one icon. The class drawing
-the artwork is not always the View you need to pass to the animation library.
+Add these permissions to the launcher application's manifest if you keep diagnostics enabled:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+```
+
+There is no runtime toggle. Before distributing your launcher, review `TransitionDiagnostics.java` and deliberately keep the current endpoint, replace it with one you operate, or disable the sender in your source.
+
+## Quick start
+
+1. Build and run the unchanged launcher.
+2. Confirm its icon renderer meets the per-cell `View` contract, or build the renderer bridge first.
+3. Copy `runtime/` beside the launcher app module, add `include(":runtime")`, and add the module dependency.
+4. Implement `LauncherHost` on the Home Activity. Use the same whole-cell `View` for scene membership, launch interception, artwork lookup, and return lookup.
+5. Return a fresh `LauncherScene` for the currently visible surface. Add icon cells once; add the dock and indicator as separate strips.
+6. Install the controller from your Application and forward the Activity, model-ready, and Home-intent events in order.
+7. Call `interceptLaunch` at the existing safe-launch gate. When it returns `true`, let `launchFromTransition` run that same launch path once, and use the prepared launch options there.
+8. Build the launcher app, set it as the Home app, and test unlock, app-open, Home-button return, and gesture return separately.
+
+## Terms
+
+- **Host** — your launcher. The library does the animation; the host tells it where the icons are and how to open an app.
+- **Activity** — the class that owns your Home screen.
+- **Root** — the `ViewGroup` holding that screen's views and the animation overlay.
+- **Dock** — the bottom row of pinned apps.
+- **Binding** — the launcher filling or rebuilding its icon views.
+- **Adapter** — the `LauncherHost` methods you implement to connect your existing objects to the library.
+
+## Choosing where to start
+
+Identify how your launcher draws one icon before implementing the adapter. The class drawing the artwork is not always the View you pass to the library.
 
 | Your launcher uses | Start here |
 | --- | --- |
-| An `ImageView`, or a cell containing an image, label and badge | [Worked View-cell example](docs/RENDERER_INTEGRATION.md#2-work-through-one-view-based-cell) |
+| An `ImageView`, or a cell containing an image, label, and badge | [Worked View-cell example](docs/RENDERER_INTEGRATION.md#2-work-through-one-view-based-cell) |
 | A custom View that draws its own icon with Canvas | [Custom View recipe](docs/RENDERER_INTEGRATION.md#3-adapt-the-artwork-recipe-to-your-renderer) |
-| Adaptive, themed, icon-pack or cached bitmap artwork | [Choose the artwork representation](docs/RENDERER_INTEGRATION.md#3-adapt-the-artwork-recipe-to-your-renderer) |
-| One Canvas, Compose, Flutter, OpenGL or another shared surface for many icons | [Renderer boundary and missing bridge](docs/RENDERER_INTEGRATION.md#1-check-whether-the-current-api-fits-your-renderer) |
+| Adaptive, themed, icon-pack, or cached bitmap artwork | [Choose the artwork representation](docs/RENDERER_INTEGRATION.md#3-adapt-the-artwork-recipe-to-your-renderer) |
+| One Canvas, Compose, Flutter, OpenGL, or other shared surface for many icons | [Renderer boundary and missing bridge](docs/RENDERER_INTEGRATION.md#1-check-whether-the-current-api-fits-your-renderer) |
 
-The [renderer integration guide](docs/RENDERER_INTEGRATION.md) shows what to inspect, which
-objects to connect, and what to check before continuing. Each rendering system needs its own
-adapter; copying the interface alone is not enough.
+## Integration
 
-## Contents
+### 1. Add the module
 
-- `runtime/`: Android Java library with a public host API and bundled gesture layout.
-- `integration/res/`: optional return-window resources.
-- `docs/IMPLEMENTATION.md`: animation timing and lifecycle details.
-- `tools/bootstrap_gradle.py`: pinned Gradle download helper.
-
-Implement `LauncherHost` on your launcher Activity. It supplies the views, artwork and launch
-callbacks. The runtime does not depend on classes from a particular launcher.
-`LauncherScene` accepts your grid coordinates and dock views. No Launcher Phone OS dependency
-or replacement of animation classes is needed.
-
-## Integrate into your launcher
-
-### 1. Start with the launcher you want to change
-
-You add this code **inside your launcher's project**. It is not a theme or an APK that changes
-whichever launcher is already installed. You need editable launcher source and its build setup.
-These instructions do not apply if you only have an installed APK.
-
-Below, “host” just means your launcher. The animation library handles the animation; the host
-tells it where the icons are and how to open an app. You keep your own launcher package, layout
-and app model. You do not need to use Launcher Phone OS.
-
-The renderer uses Android Views. A Compose-only or Flutter launcher needs a View-backed bridge
-for its icon artwork and overlay container; copying the module alone does not provide that bridge.
-
-### 2. Copy the animation module into your project
-
-1. Download or clone [this repository](https://github.com/IvanChanPing/launcher-combined-animations).
-2. Open your existing launcher project folder. Use the folder containing its `settings.gradle`
-   or `settings.gradle.kts`, not the `src/` folder.
-3. Copy this repository's entire `runtime/` folder into that folder, beside your launcher module.
-
-For a launcher whose app module is named `app`, the result is:
+1. Download or clone this repository.
+2. Open your launcher project folder — the one holding its `settings.gradle` or `settings.gradle.kts`, not the `src/` folder.
+3. Copy this repository's entire `runtime/` folder in beside your launcher module, keeping its Java sources and `res/` files together.
 
 ```text
 your-launcher/
@@ -119,71 +136,31 @@ your-launcher/
 └── runtime/                The folder copied from this repository
 ```
 
-Keep the Java sources and `res/` files together. The resources include the surface used during
-return-to-Home. You do not need this repository's tests or the example launcher's patcher to
-include the module in your app.
+Check that `runtime/build.gradle.kts` and `runtime/src/main/` now exist in your launcher project.
 
-Before continuing, check that `runtime/build.gradle.kts` and `runtime/src/main/` exist in your
-launcher project. If you put `runtime` inside `app/src/`, move it beside `app` instead.
+### 2. Connect the modules in Gradle
 
-### 3. Connect the two modules in Gradle
-
-In your existing `settings.gradle.kts`, add:
+In `settings.gradle.kts`:
 
 ```kotlin
 include(":runtime")
 ```
 
-In your launcher module's `build.gradle.kts` (for example `app/build.gradle.kts`), add the
-dependency to the existing block. Keep any dependencies already there:
+In your launcher module's `build.gradle.kts`, add the dependency to the existing block:
 
 ```kotlin
 dependencies {
     implementation(project(":runtime"))
-    // Keep your other dependencies here.
 }
 ```
 
-For Groovy build files, the equivalents are `include ':runtime'` in `settings.gradle` and
-`implementation project(':runtime')` inside `dependencies` in `app/build.gradle`.
+For Groovy files, use `include ':runtime'` and `implementation project(':runtime')`.
 
-The copied module uses Android SDK 36, Java 17 and minSdk 24. This repository pins Android
-Gradle Plugin 8.10.1 and Gradle 8.11.1. Your project must resolve `com.android.library` through
-its plugin setup; use the same Android plugin version as your app module. Do not paste a second,
-conflicting plugin version into an existing setup or replace your whole build file.
+The module compiles against Android SDK 36, Java 17, and `minSdk` 24, and resolves `com.android.library` through your project's plugin setup; use the same Android plugin version as your app module. Sync the project, then confirm your editor resolves the `LauncherHost` import before adding more code.
 
-Sync the project in Android Studio. This step connects the library to your launcher; it does
-not yet connect any icon taps or animations.
+### 3. Implement `LauncherHost`
 
-Before continuing, confirm that your editor can resolve the `LauncherHost` import in step 4.
-If it cannot, check the module folder, settings entry and app dependency before adding more code.
-
-### 4. Connect your Home screen Activity
-
-1. In your launcher project, search for `android.intent.category.HOME` in `AndroidManifest.xml`.
-2. Find the enclosing `<activity>` and read its `android:name`. If it is an `<activity-alias>`,
-   follow its `android:targetActivity` to the actual Activity class.
-3. Open that class. This is where the Activity-side changes in this guide belong.
-4. Add `LauncherHost` to its implemented interfaces, keeping the existing superclass and
-   any interfaces it already implements.
-
-For example, if your Java declaration is:
-
-```java
-public class HomeActivity extends ExistingBaseActivity {
-```
-
-Change only the declaration to:
-
-```java
-public class HomeActivity extends ExistingBaseActivity implements LauncherHost {
-```
-
-`HomeActivity` and `ExistingBaseActivity` are example names. Keep the names already in your file;
-do not create a replacement Activity just to match the example. These snippets show one line,
-not a complete class.
-
-Import the library types where needed:
+Find the Home Activity: search `AndroidManifest.xml` for `android.intent.category.HOME`, open the enclosing `<activity>` (follow `targetActivity` if it is an `<activity-alias>`), and add `LauncherHost` to its implemented interfaces, keeping the existing superclass.
 
 ```java
 import com.ivanchan.launcher.combined.transitions.CombinedTransitionController;
@@ -191,45 +168,32 @@ import com.ivanchan.launcher.combined.transitions.LauncherHost;
 import com.ivanchan.launcher.combined.transitions.LauncherScene;
 ```
 
-Use your IDE's “Implement methods” action for `LauncherHost`, then fill in all seven methods.
-Do not leave the generated `null` or `false` placeholders without checking what each means:
+Seven methods are required. Four have defaults you override only when you need to.
 
-| Method | What you supply |
+| Required method | What you supply |
 | --- | --- |
-| `transitionRoot()` | The `ViewGroup` containing your visible icons and the animation overlay. |
+| `transitionRoot()` | The `ViewGroup` holding your visible icons and the animation overlay. |
 | `isTransitionBinding()` | `true` while you are rebuilding or loading the icon views; `false` when ready. |
-| `captureTransitionScene(selected)` | A description of the current visible grid and dock, built in step 5. Return `null` if unavailable. |
+| `captureTransitionScene(selected)` | The current visible grid and dock (built in step 4). Return `null` if unavailable. |
 | `transitionIconBounds(icon)` | The artwork rectangle inside that icon's View, without the text label. |
-| `transitionIconDrawable(icon)` | That icon's artwork, with an independent drawable constant state. |
-| `launchFromTransition(icon, intent, item)` | Your existing safe app-launch route, connected in step 7. |
-| `findTransitionTarget(scene, component, user)` | The visible icon to return to for that app and user profile, or `null` if none exists. |
+| `transitionIconDrawable(icon)` | That icon's artwork, as a drawable with an independent constant state. |
+| `launchFromTransition(icon, intent, item)` | Your existing safe app-launch route (connected in step 6). |
+| `findTransitionTarget(scene, component, user)` | The visible icon to return to for that app and profile, or `null`. Required to compile; the icon-card path does not call it. |
 
-These methods are the adapter. Their bodies depend on your launcher because every launcher
-stores its icons and app records differently. The animation classes do not need to be renamed
-to match your launcher. Full signatures are in [LauncherHost.java](runtime/src/main/java/com/ivanchan/launcher/combined/transitions/LauncherHost.java).
+| Optional method | Default |
+| --- | --- |
+| `transitionIconCornerFraction(icon)` | `0`. Radius as a fraction of artwork width, finite from 0 to 0.5: `0` square, `0.25` rounded square, `0.5` circular. Supply your renderer's real value so the card matches your icons. |
+| `shouldAnimateLaunch(icon, intent, item)` | `true`. Return `false` for item types your adapter cannot represent. |
+| `transitionReturnBounds(target)` | Same as `transitionIconBounds(target)`. |
+| `createTransitionSurface(activity, parent)` | Inflates the bundled return-window surface. |
 
-Use the [worked cell mapping](docs/RENDERER_INTEGRATION.md#2-work-through-one-view-based-cell)
-when filling these methods. In particular, use the same whole-cell View for scene membership,
-launch interception and return lookup; do not mix a child ImageView with its parent cell.
+Six of these methods declare `throws ReflectiveOperationException`, allowing a host that reads its model reflectively to propagate failures at the call sites that use them. Capture failures restore the transient visuals and leave the existing launch path in control; Home-entry failures skip only the optional entrance; and an exception from `launchFromTransition` is cleaned up but never retried, so the app never launches twice. The field names and model types behind each method are specific to your launcher — there is no universal field to copy. Use the [worked cell mapping](docs/RENDERER_INTEGRATION.md#2-work-through-one-view-based-cell), and the two complete host examples in [`tests/fixtures/GridHost.java`](tests/fixtures/GridHost.java) and [`tests/fixtures/ListHost.java`](tests/fixtures/ListHost.java). Full signatures: [`LauncherHost.java`](runtime/src/main/java/com/ivanchan/launcher/combined/transitions/LauncherHost.java).
 
-To fill in those methods, first identify these existing objects in your launcher:
+Use the same whole-cell View for scene membership, launch interception, artwork, and return lookup. Mixing a child ImageView with its parent cell leaves the selected cell in the sibling snapshots.
 
-| Find in your launcher | How to locate it | Used by |
-| --- | --- | --- |
-| Home-screen container | Follow the Activity's layout inflation and view initialization. Choose a `ViewGroup` containing both the page and dock. | `transitionRoot` |
-| Current page and icon cells | Follow the code that adds icons to the visible page; use its cell positions and page-selection state. | `captureTransitionScene` |
-| Model-loading flag | Follow the start and end of that icon-binding code. | `isTransitionBinding` |
-| Icon artwork and its rectangle | Read the icon View's drawing code or artwork accessors. Use artwork bounds, not the whole cell rectangle. | `transitionIconBounds`, `transitionIconDrawable` |
-| Existing app-launch method | Follow an icon's click listener to the method that checks the item and opens it. | `launchFromTransition` |
-| Component and user stored on each item | Follow the data used to bind each visible icon. | `findTransitionTarget` |
+### 4. Build the scene
 
-This is the launcher-specific work. There is no universal field name to copy here. Once you
-have these objects, the following steps show how to pass them to the library; you do not need
-to rewrite the animation engine.
-
-### 5. Tell it which icons and bottom bar to animate
-
-Inside `captureTransitionScene`, create a fresh scene from the page that is actually visible:
+Inside `captureTransitionScene`, build a fresh scene from the page that is actually visible. Replace the placeholder names with your launcher's objects:
 
 ```java
 LauncherScene scene = new LauncherScene(
@@ -242,133 +206,66 @@ scene.addStrip(pageIndicator);
 return scene;
 ```
 
-This is a template, not a complete method to paste unchanged. `MyCell`, `visibleCells`, `root`,
-`visiblePage`, `dock` and `pageIndicator` stand for the objects in **your** launcher.
-Omit a strip call if your launcher has no corresponding view.
+- Pass each whole icon cell — image, label, and badge — to `addIcon`.
+- Rows and columns are zero-based; include empty cells in the totals.
+- Add only the currently visible page or open surface. The constructor's `true` marks the Home workspace; use `false` for a folder or app list.
+- Add the bottom bar as one `dock` strip. Do not also add its icons to the grid loop — the bar moves as a group.
+- Every view must be inside `root`; do not add the same icon twice or overlap strips.
 
-- Pass each whole icon cell, including its label and badge, to `addIcon`.
-- Rows and columns start at zero. A four-column grid has columns `0`, `1`, `2`, `3`.
-  Include empty cells when giving the total grid width and height.
-- Add only the current visible page or open folder/app-list surface, not every page at once.
-- The constructor's `true` means this is the Home workspace. Use `false` for a folder or app list.
-- Add the bottom app bar as one `dock` strip. **Do not also add its app icons to the grid loop.**
-  The bar moves as a group; treating its children as grid icons would give them two animation roles.
-- Every view must be inside `root`. Do not add the same icon twice or overlapping strips.
+`anchorX`, `anchorY`, and `cellHeight` are pixels in the root's coordinate system. The grid captures the **whole cell**; `transitionIconBounds` describes **only the artwork** inside the supplied icon View. See the [host API guide](docs/HOST_API.md#build-a-scene) for the anchor calculation and `LauncherGeometry` helpers.
 
-`anchorX` and `anchorY` are the point the grid moves relative to. They and `cellHeight` use
-pixels in the root's coordinate system, not screen coordinates or dp. The
-[host API guide](docs/HOST_API.md#build-a-scene) explains the grid anchor calculation
-and the `LauncherGeometry` helpers for converting positions.
+Build the scene after layout, recreate it after page or model changes, and do not alter a scene while it is playing. Anchors must be finite and `cellHeight` positive, or the scene is rejected.
 
-There are two different rectangles to keep straight: the grid captures the **whole cell**;
-`transitionIconBounds` describes **only the artwork**, measured inside the supplied icon View.
-Do not include the label or pass screen coordinates as artwork bounds.
+### 5. Forward lifecycle events
 
-For example, suppose an icon cell is 96 pixels wide and 120 pixels high, but its artwork occupies
-the rectangle from `(20, 8)` to `(76, 64)` inside that cell. Its artwork bounds would be
-`new RectF(20, 8, 76, 64)`, not `new RectF(0, 0, 96, 120)`. These numbers only illustrate the
-coordinate system; measure your own artwork rather than copying them.
-
-Build the scene after layout has given the views their positions. Recreate it after page or
-model changes, and do not alter a scene while it is playing.
-
-Before continuing, check one scene by following its inputs: each visible cell appears once,
-its row/column is inside the declared grid, the dock is a separate strip, and `cellHeight` is
-greater than zero. Do not supply an unmeasured scene while the launcher is still loading.
-
-### 6. Tell the library when the launcher starts, stops and receives Home
-
-In your existing Application's `onCreate`, after its normal initialization, call:
+Install the controller once from your Application's `onCreate`, after its normal setup:
 
 ```java
 CombinedTransitionController.install(this);
 ```
 
-If you add an Application class, register it in your manifest. If the launcher already has one,
-use that class rather than replacing it.
-
-In the Home Activity, forward these events. All the calls below take the Activity as `this`.
-Keep the launcher's existing callback bodies and superclass calls.
-
-| Your launcher event | Library call | Where to put it |
-| --- | --- | --- |
-| `onCreate` | `onLauncherCreated(this)` | After the launcher initializes its model and views. |
-| `onStart` | `onLauncherStarted(this)` | After the existing body. |
-| `onResume` | `onLauncherResumed(this)` | After the existing body. |
-| `onWindowFocusChanged` | `onLauncherFocused(this)` | After the existing body; the controller reads the current focus. |
-| Icon/model binding finishes | `onLauncherModelReady(this)` | After binding is complete and your binding flag is cleared. |
-| `onConfigurationChanged` | `onLauncherConfigurationChanged(this)` | After the existing body. |
-| `onPause` | `onLauncherPaused(this)` | At entry, before the existing body. |
-| `onStop` | `onLauncherStopped(this)` | At entry, before the existing body. |
-| `onDestroy` | `onLauncherDestroyed(this)` | At entry, before the existing body. |
-
-Prefix each library call in the table with `CombinedTransitionController.`. “Binding finishes”
-is your launcher's own event, not a standard Activity callback: find where it finishes adding
-icons to the screen and notify the controller there.
-
-`onNewIntent` needs two calls, in this order:
+Forward these from the Home Activity, keeping your existing callback bodies and `super` calls. Pass the Activity as `this`:
 
 ```java
-@Override
-protected void onNewIntent(Intent intent) {
+@Override protected void onCreate(Bundle b) { super.onCreate(b); /* … */ CombinedTransitionController.onLauncherCreated(this); }
+@Override protected void onStart()  { super.onStart();  CombinedTransitionController.onLauncherStarted(this); }
+@Override protected void onResume() { super.onResume(); CombinedTransitionController.onLauncherResumed(this); }
+@Override public void onWindowFocusChanged(boolean f) { super.onWindowFocusChanged(f); CombinedTransitionController.onLauncherFocused(this); }
+@Override protected void onConfigurationChanged(Configuration c) { super.onConfigurationChanged(c); CombinedTransitionController.onLauncherConfigurationChanged(this); }
+@Override protected void onPause()   { CombinedTransitionController.onLauncherPaused(this);   super.onPause(); }
+@Override protected void onStop()    { CombinedTransitionController.onLauncherStopped(this);  super.onStop(); }
+@Override protected void onDestroy() { CombinedTransitionController.onLauncherDestroyed(this); super.onDestroy(); }
+
+@Override protected void onNewIntent(Intent intent) {
     CombinedTransitionController.recordHomeIntent(this, intent);
     super.onNewIntent(intent);
-    // Keep the rest of your launcher's existing intent handling here.
+    // your existing Home handling
     CombinedTransitionController.onLauncherNewIntent(this);
 }
 ```
 
-Merge those calls into your existing method; do not delete its Home handling. The first call
-records the Home action before the launcher processes the intent.
-The second tells the controller that the launcher has finished handling it.
+When your icon binding finishes, call `CombinedTransitionController.onLauncherModelReady(this)` — that is your launcher's own event, not an Activity callback. In `onNewIntent`, `recordHomeIntent` must run before your Home handling and `onLauncherNewIntent` after it; the order matters.
 
-Before continuing, check both sides of the connection: Application initialization calls
-`install`, and the Activity forwards every event in the table. `onResume` alone does not replace
-the model-ready notification or the two Home-intent calls.
+### 6. Connect icon taps
 
-### 7. Connect icon taps without replacing your app-launch logic
+Find the method your icon click listeners already call to launch an item — the existing safe-launch gate that runs your profile, permission, safe-mode, and disabled-app checks before `startActivity`. Connect there rather than adding a new launch to each icon.
 
-In your editor, open a workspace icon's click listener and follow the method it calls to launch
-the item. Then follow a dock icon and a folder icon. Identify the common launch method, or the
-separate paths if they do not share one. Search for `startActivity` and `LauncherApps` as starting
-points, then follow their callers; a matching name alone is not enough to choose the hook.
-
-Connect at the existing safe-launch gate rather than adding a new direct launch to each icon.
-Keep the existing profile, shortcut, permission, safe-mode and disabled-app checks.
-
-At that launch gate, before creating the normal launch options, call:
+At that gate, before building the normal launch options:
 
 ```java
-boolean handled = CombinedTransitionController.interceptLaunch(
-    this, sourceView, intent, item);
+boolean handled = CombinedTransitionController.interceptLaunch(this, sourceView, intent, item);
 ```
 
-Here `sourceView` is the tapped icon View, `intent` is the existing launch Intent and `item`
-is your launcher's app/shortcut record. The library passes `item` back without reading its fields.
+- `true` — stop this invocation of the normal launch path; the controller owns the tap and will call `launchFromTransition` at the animation's handoff.
+- `false` — continue the normal launch unchanged.
+- In `launchFromTransition`, call your existing safe-launch method once and return whether it accepted the launch.
 
-- If `handled` is `true`, stop that invocation of the normal launch path. The controller owns
-  this tap and will call `launchFromTransition` at the animation's launch point.
-- If it is `false`, continue the normal launch path unchanged.
-- In `launchFromTransition`, call your existing safe-launch method once and return whether
-  it accepted the launch. The controller guards re-entry into the interceptor during this call.
-
-In your existing launch-options provider, ask for the prepared options:
+In your launch-options provider, ask for the prepared options and use them if present:
 
 ```java
 ActivityOptions transitionOptions =
     CombinedTransitionController.consumeLaunchOptions(this, sourceView);
 ```
-
-If non-null, use those options for this launch. Otherwise use your normal options. If your
-launch API takes a `Bundle`, use `transitionOptions.toBundle()`. Do not discard the prepared
-options or launch the app again after returning `true` from the interceptor.
-
-Both snippets run in the Activity; use your Activity reference instead of `this` if the code
-lives in a helper. `ActivityOptions` is `android.app.ActivityOptions`. Make sure workspace,
-dock, folder and app-list taps all reach this integration point. Use `shouldAnimateLaunch`
-to exclude host-specific item types that your adapter cannot represent.
-
-The order is:
 
 ```text
 Tap an icon → existing launch checks → interceptLaunch
@@ -378,99 +275,52 @@ Tap an icon → existing launch checks → interceptLaunch
               → existing safe launch uses consumeLaunchOptions
 ```
 
-Before continuing, trace the `true` branch: it must not also perform the original immediate
-launch. Trace the callback too: it must reach the existing safe-launch method, not a second
-new launch implementation.
+Make sure workspace, dock, folder, and app-list taps all reach this gate. Trace the `true` branch: it must not also perform the original immediate launch, and the callback must reach your existing safe-launch method, not a second launch.
 
-### 8. Connect the destination for returning Home
+### 7. Returning Home
 
-The controller remembers the actual icon View after `launchFromTransition` accepts the
-launch. On return it uses that View only if it is still visible in the same root. If your
-launcher rebuilt or removed the View, the selected card is skipped and the grid still enters.
+The controller remembers the opened icon View after `launchFromTransition` accepts the launch, and on return uses it only if it is still visible in the same root. Opening and return both use `transitionIconBounds`, `transitionIconDrawable`, and `transitionIconCornerFraction`; supply the same cell View as for taps. The controller excludes the selected icon from the sibling snapshots automatically. The icon-card path does not call `findTransitionTarget`, `transitionReturnBounds`, or `createTransitionSurface`.
 
-Opening and return both use `transitionIconBounds`, `transitionIconDrawable`, and
-`transitionIconCornerFraction`. Supply the same cell View for scene membership and taps.
-Exclude the selected icon from sibling snapshots; the controller does this automatically.
+### 8. Build and test the three paths
 
-The icon-card flow does not call `findTransitionTarget`, `transitionReturnBounds`, or
-`createTransitionSurface`. You can return `null` from `findTransitionTarget` unless your
-launcher uses another return animation that needs it.
-
-The white card is launcher artwork. Android still controls the outgoing app's real window.
-Test Home-button and gesture navigation separately.
-
-### 9. Add the diagnostic permissions
-
-This library automatically uploads transition event codes, generation and SDK to the author's
-collector. It does not send app identity or icon pixels. Review this behavior before distributing
-your launcher; the uploader is [TransitionDiagnostics.java](runtime/src/main/java/com/ivanchan/launcher/combined/transitions/TransitionDiagnostics.java).
-
-Add these permissions inside your host manifest's `<manifest>` element, outside `<application>`:
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-```
-
-Keep existing declarations if they are already present; do not duplicate them.
-
-### 10. Build your launcher and test the three paths separately
-
-1. Save your changes in the launcher project.
-2. Open a terminal in that project's root folder—the one containing its Gradle wrapper.
-3. Build the **launcher app**, not just this library, using the project's normal build task.
-
-For a project with an `app` module and a Gradle wrapper, a debug-build command is:
+Build the launcher app with its normal task, for example:
 
 ```sh
 ./gradlew :app:assembleDebug
 ```
 
-On Windows, use `gradlew.bat :app:assembleDebug`. If your project uses a different module name
-or build variant, use the task you used for its unchanged build in the prerequisites.
+Install that build, open Android Settings, search **Home app**, and select your test launcher. Then check each path on its own:
 
-4. Wait for the build to finish successfully. If it fails, address the first reported error;
-   do not install an older APK and treat it as this build.
-5. Install the APK produced by that successful build, using your launcher's existing install workflow.
-6. On the phone, open Android Settings, search for **Home app**, and select your test launcher.
+1. Unlock to Home — grid entrance and bottom bar.
+2. Tap an app on the workspace — selected-icon open and the other icons leaving.
+3. Return Home — destination icon and the other icons returning.
+4. Repeat with corner and center icons, the dock, a folder, and the app list.
+5. Repeat return with the Home button and the Home gesture; also check work-profile apps, adaptive and non-adaptive icons, interrupted animations, and system animations disabled.
 
-An AAR is a library for developers; it is not the APK you install on the phone. If you need
-a separately installed test clone, give your host app a different application ID as part of
-that launcher's own build setup; changing this library's namespace does not create a clone.
+An AAR is a developer library, not an installable APK. For a separately installed test clone, give your host app a different application ID in its own build setup.
 
-Check these separately so you know which connection you are testing. They are acceptance checks,
-and checking one path at a time makes failures easier to locate:
+## Troubleshooting
 
-1. Lock the phone and unlock to Home. Check the Home-screen grid entrance and the bottom bar.
-2. Tap an app on the visible workspace. Check the selected-icon opening and the other icons leaving.
-3. Return Home from that app. Check the destination icon and the other icons coming back.
-4. Repeat with icons at the corners and center, then with the dock, a folder and the app list.
-5. Repeat return using the Home button and Home gesture. Also check work-profile apps,
-   adaptive/nonadaptive icons, interrupted animations and system animations disabled.
-
-For the full coordinate and callback contract, use [HOST_API.md](docs/HOST_API.md).
-
-## If you get stuck
-
-Use the exact error or the first failing step to choose what to inspect. A visual symptom alone
-does not identify its cause.
-
-| What you see | What to check next |
+| What you see | What to check |
 | --- | --- |
-| Your editor cannot resolve `LauncherHost` | Check the three connections in steps 2–3: module folder, settings entry, app dependency. |
-| `Invalid scene geometry` | Check the supplied anchor values are finite and the measured cell height is positive. |
-| `Invalid cell coordinates` | Check zero-based row/column indices against the grid dimensions passed to `addIcon`. |
-| `Duplicate scene icon`, `Strip contains a grid icon` or `Overlapping scene strips` | Check scene membership in step 5; a dock child must not also be a grid item. |
-| The app opens twice | Trace the interceptor's `true` branch and `launchFromTransition` in step 7; there must be one launch handoff. |
-| Unlock entrance is absent | Check Application installation, the binding flag, model-ready notification and Activity callbacks in step 6. |
-| Home return has no destination icon | Check that the opened cell remains visible in the same root and that Home-intent/lifecycle forwarding is complete. |
+| Editor cannot resolve `LauncherHost` | The module folder, `settings` entry, and app dependency in steps 1–2. |
+| `Invalid scene geometry` | Anchor values are finite and the measured cell height is positive. |
+| `Invalid cell coordinates` | Zero-based row/column indices against the grid dimensions passed to `addIcon`. |
+| `Duplicate scene icon`, `Strip contains a grid icon`, or `Overlapping scene strips` | Scene membership in step 4 — a dock child must not also be a grid item. |
+| The app opens twice | The interceptor's `true` branch and `launchFromTransition` in step 6 — there must be one launch handoff. |
+| Unlock entrance is absent | Application install, the binding flag, the model-ready call, and Activity callbacks in step 5. |
+| Home return has no destination icon | The opened cell is still visible in the same root, and Home-intent and lifecycle forwarding is complete. |
+| White card has square corners over a rounded icon | `transitionIconCornerFraction` returns your renderer's value, and artwork bounds exclude the label. |
 
-If the white card has square corners over a rounded icon, supply the actual corner fraction
-through `transitionIconCornerFraction` and verify artwork bounds exclude the label.
+## Limitations
 
-## Build the library on its own
+- The supplied adapter is for Android View-based launchers. Shared-Canvas, Compose, Flutter, OpenGL, `SurfaceView`, and `TextureView` renderers need a bridge this repository does not provide.
+- Android owns the outgoing app window. This library renders launcher artwork, not the live app contents.
+- If your launcher rebuilds the opened cell's View while the app is open, the return card is skipped and the grid still enters.
 
-With Python 3.11+, JDK 17/21 and Android SDK 36 installed:
+## Working on the library
+
+Build the AAR on its own with Python 3.11+, JDK 17, and Android SDK 36:
 
 ```sh
 python3 tools/bootstrap_gradle.py
@@ -478,20 +328,24 @@ export ANDROID_HOME=/path/to/android-sdk
 work/toolchain/gradle-8.11.1/bin/gradle --no-daemon --max-workers=1 :runtime:assembleRelease
 ```
 
-The output is an AAR library. Optional return-window resources belong in the host app.
-See [the implementation guide](docs/IMPLEMENTATION.md) for animation timing and lifecycle details.
-
-## Example integration
-
-The [Launcher Phone OS patch kit](https://github.com/IvanChanPing/launcher-phone-os-combined)
-shows one integration, including APK hooks, build scripts and tests. Its version-specific
-patcher is separate from this reusable host API.
-
-## Source checks
+Run the source-contract checks with:
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-These checks validate the host API, resources and animation timing. Run the library build above
-to compile the Android module.
+These check the host API, resources, and animation timing on the host JVM. They are not an Android compile or a UI test; build the module and run the launcher on a device for those.
+
+## Repository layout
+
+- `runtime/` — the Android Java library: the `LauncherHost` API and the bundled transition overlay.
+- `integration/res/` — optional return-window animation and layout resources for the host app.
+- `docs/HOST_API.md` — the scene, coordinate, and callback contract.
+- `docs/IMPLEMENTATION.md` — animation timing and lifecycle detail.
+- `docs/RENDERER_INTEGRATION.md` — adapting the adapter to your renderer.
+- `tests/` — host-JVM source-contract checks and the `GridHost` / `ListHost` fixtures.
+- `tools/bootstrap_gradle.py` — pinned Gradle download helper.
+
+## Example integration
+
+The [Launcher Phone OS patch kit](https://github.com/IvanChanPing/launcher-phone-os-combined) shows one complete integration, including its build scripts and tests. Its version-specific patcher is separate from this reusable host API.
