@@ -73,7 +73,7 @@ class HostApiTest(unittest.TestCase):
     def test_motion_and_wire_contract_unchanged(self):
         expected = {
             'MotionMath.java': 'c84f31f51ae1896aed094df27b79b3b899301b33b106e47475726660717f5c62',
-            'NovaGestureContract.java': 'b7e1dae2a67befaa24f883a7f4fafad2360ef65433721e9a5144eddfc158c2cf',
+            'NovaGestureContract.java': '5e677b1d64bf47549896a9048be17efde4e4b364b6f68f60ce6eaa3a4a4af67b',
         }
         for name, digest in expected.items():
             self.assertEqual(digest, hashlib.sha256((JAVA / name).read_bytes()).hexdigest())

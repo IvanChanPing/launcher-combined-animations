@@ -68,37 +68,6 @@ Build and run your unchanged launcher first, using its normal build task. Keep t
 and install workflow for step 8. You need enough Java or Kotlin to edit the Home Activity
 and follow an icon's click handler to the existing launch method.
 
-## Network use
-
-Calling `CombinedTransitionController.install(...)` also enables the built-in transition diagnostics.
-
-The runtime sends HTTPS `POST` requests to:
-
-```text
-https://204-168-163-118.sslip.io/imelog/launcher-combined
-```
-
-Each request contains one bounded text event in this form:
-
-```text
-transition=<code> generation=<number> sdk=<api-level>
-```
-
-The sender keeps at most 64 in-memory events, limits each event to 160 characters, drops the oldest event when full, and retries every 15 seconds over a validated Internet connection. It does not include package or app identity, intents, icon pixels, credentials, exception text, or logcat output.
-
-Add these permissions to the launcher application's manifest if you keep diagnostics enabled:
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-```
-
-There is no runtime toggle. Before distributing your launcher, review `TransitionDiagnostics.java` and deliberately keep the current endpoint, replace it with one you operate, or disable the sender in your source.
-
-Requests also carry the header `X-Device: launcher-combined`. Review the
-[sender source](runtime/src/main/java/com/ivanchan/launcher/combined/transitions/TransitionDiagnostics.java)
-before calling `install`; the animation setup and diagnostics installation share that call.
-
 ## Quick start
 
 Use this as a checklist; follow the [eight integration steps](#integration) for the
@@ -305,8 +274,7 @@ CombinedTransitionController.install(this);
 ```
 
 If your launcher already has an Application class, use it. If you add one, register
-it in the application's manifest. Review the [network behavior](#network-use) and
-permissions before adding `install`.
+it in the application's manifest.
 
 In the Home Activity, add the calls at these positions. Keep the existing callback
 bodies, declarations, visibility, and `super` calls. Pass the Activity as `this`:

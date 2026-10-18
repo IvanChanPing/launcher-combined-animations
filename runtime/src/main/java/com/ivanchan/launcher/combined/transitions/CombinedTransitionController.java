@@ -80,7 +80,6 @@ public final class CombinedTransitionController {
 
     public static void install(Application application) {
         UnlockSignalTracker.install(application);
-        TransitionDiagnostics.install(application);
     }
 
     public static boolean interceptLaunch(Activity activity, View source, Intent intent, Object item) {
@@ -248,10 +247,8 @@ public final class CombinedTransitionController {
             };
             root.postDelayed(timeout, VISUAL_WAIT_MS);
             root.invalidate();
-            TransitionDiagnostics.event("open_prepared", token);
             return true;
         } catch (ReflectiveOperationException | RuntimeException failure) {
-            TransitionDiagnostics.event("capture_native_fallback", generation);
             clearVisuals(); return false;
         }
     }
@@ -300,12 +297,10 @@ public final class CombinedTransitionController {
                             } else clearVisuals();
                             cold = false; departed = false; issued = false; pendingGesture = null;
                             if (unlock) UnlockSignalTracker.consume();
-                            TransitionDiagnostics.event(unlock ? "unlock_entry" : "return_entry", token);
                             return true;
                         }
                     }
                     if (now - began >= VISUAL_WAIT_MS) {
-                        TransitionDiagnostics.event("entry_visual_timeout", token);
                         pendingGesture = null;
                         clearVisuals();
                         return true;
@@ -313,20 +308,20 @@ public final class CombinedTransitionController {
                     root.postInvalidateOnAnimation();
                     return false; // Do not expose a static Home frame before the fly-in snapshot.
                 } catch (ReflectiveOperationException | RuntimeException failure) {
-                    TransitionDiagnostics.event("entry_native_fallback", token); clearVisuals();
+                    clearVisuals();
                 }
                 return true;
             };
             root.getViewTreeObserver().addOnPreDrawListener(preDraw);
             timeout = () -> {
                 if (token == generation) {
-                    TransitionDiagnostics.event("entry_no_draw_timeout", token); pendingGesture = null; clearVisuals();
+                    pendingGesture = null; clearVisuals();
                 }
             };
             root.postDelayed(timeout, VISUAL_WAIT_MS + SETTLE_MS);
             root.postInvalidateOnAnimation();
         } catch (ReflectiveOperationException | RuntimeException failure) {
-            TransitionDiagnostics.event("entry_owner_unavailable", generation); clearVisuals();
+            clearVisuals();
         }
     }
 
@@ -425,10 +420,8 @@ public final class CombinedTransitionController {
             replaying = true;
             boolean accepted = ((LauncherHost) a).launchFromTransition(source, pendingIntent, pendingItem);
             if (accepted) lastOpenedSource = new WeakReference<>(source);
-            TransitionDiagnostics.event(accepted ? "vendor_launch_accepted" : "vendor_launch_declined", token);
             if (!accepted) { issued = false; pendingGesture = null; clearVisuals(); }
         } catch (ReflectiveOperationException | RuntimeException failure) {
-            TransitionDiagnostics.event("vendor_launch_exception", token);
             pendingGesture = null;
             clearVisuals();
         } finally {

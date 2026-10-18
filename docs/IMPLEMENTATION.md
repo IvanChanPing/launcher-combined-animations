@@ -24,7 +24,6 @@ launcher-specific classes, model fields or reflection. See [Host API](HOST_API.m
 | NovaGestureContract | Nova HOME-parcel consumption, exact reply and weak finish receiver |
 | NovaGestureSurface | Nova Picture/SurfaceView provider; Android owns its trajectory |
 | UnlockSignalTracker | USER_PRESENT before/after resume; short-lived unlock token |
-| TransitionDiagnostics | Bounded private event codes automatically delivered to the box |
 
 ## Ordered flow: open
 
@@ -73,12 +72,12 @@ Ordered protocol (local Android parcel/Binder messages, not a network protocol):
 
 No encryption is added: the platform-supplied Messenger is the local Binder reply channel.
 Preserve the incoming Message routing identity; gate completion against the active session so stale
-callbacks cannot remove a newer surface. Never upload component/profile/message/pixels in diagnostics.
+callbacks cannot remove a newer surface.
 
 Variants: malformed/absent contract, API<30, no visible matching app/widget, model not ready,
 surface not yet valid, remote callback failure, old-API panel failure, new gesture during cleanup.
-Without a valid contract/target, retain Nova's mapped window-style fallback plus the existing grid,
-and report a bounded reason. Do not substitute a large drawn icon or claim a system-window shrink.
+Without a valid contract/target, retain Nova's mapped window-style fallback plus the existing grid.
+Do not substitute a large drawn icon or claim a system-window shrink.
 
 The open path retains the verified f10/d0.G + az/n + v00/d tracks and handoff geometry.
 The existing iLauncher ring tables and dock clock remain unchanged; tray-only cleanup is held until its parent is restored. Surface/finish integration
@@ -143,23 +142,11 @@ An issued external launch or a real gesture contract permits return preparation.
 does not wait for Home focus. With grid animation disabled, a valid contract is still answered.
 Activity ownership remains weak, and no adapter object separately retains the Activity.
 
-## Diagnostics and privacy
-
-The runtime automatically POSTs bounded transition codes to:
-https://204-168-163-118.sslip.io/imelog/launcher-combined
-
-Only event code, generation and SDK are sent; no app identities, intents, pixels, credentials
-or global logs. A single worker uses a validated INTERNET network, 3-second timeouts,
-a64-item drop-oldest queue and automatic15-second retries. The queue is in memory: process
-death can lose queued diagnostics. There is no crash-reporting claim.
-The collector is POST-only publicly; Codex reads its on-box log. No user log courier is required.
-
 ## Required actual-device test matrix (after authorized compilation)
 
-For each case, interact with the real launcher and inspect recorded frames plus automatic events:
+For each case, interact with the real launcher and inspect recorded frames:
 
-1. On gesture Home, confirm gesture_contract_received, gesture_surface_reply and
-   gesture_system_finished arrive in automatic diagnostics; verify the real app window lands
+1. On gesture Home, verify the real app window lands
    on the supplied icon while siblings zoom. Check non-contract navigation remains a native fallback.
    Test both API30 panel and API31+ child routes, a late finish and a second gesture before cleanup.
 2. Cold HOME while binding, then first unlock; USER_PRESENT before and after resume; repeated

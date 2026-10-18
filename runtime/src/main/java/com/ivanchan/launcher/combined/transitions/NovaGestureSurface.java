@@ -119,7 +119,6 @@ public final class NovaGestureSurface extends FrameLayout
             }
             target.setAlpha(0f);
             if (activity.hasWindowFocus()) view.onHostFocused();
-            TransitionDiagnostics.event("gesture_surface_attached", view.sessionId);
             return view;
         } catch (ReflectiveOperationException | RuntimeException failure) {
             view.abort();
@@ -187,13 +186,11 @@ public final class NovaGestureSurface extends FrameLayout
             }
         } catch (RuntimeException unavailable) {
             surfaceFailed = true;
-            TransitionDiagnostics.event("gesture_surface_draw_unavailable", sessionId);
         } finally {
             if (canvas != null) {
                 try { holder.unlockCanvasAndPost(canvas); }
                 catch (RuntimeException unavailable) {
                     surfaceFailed = true;
-                    TransitionDiagnostics.event("gesture_surface_post_unavailable", sessionId);
                 }
             }
         }
@@ -209,7 +206,6 @@ public final class NovaGestureSurface extends FrameLayout
         if (control == null || !control.isValid()) return;
         if (contract.send(position, control, this) && !sent) {
             sent = true;
-            TransitionDiagnostics.event("gesture_surface_reply", sessionId);
         }
     }
 
@@ -232,7 +228,6 @@ public final class NovaGestureSurface extends FrameLayout
         if (closing || disposed) return;
         finishReceived = true;
         removeCallbacks(legacyFinish);
-        TransitionDiagnostics.event("gesture_system_finished", sessionId);
         finishIfReady();
     }
     void releaseGridHold() {
@@ -276,7 +271,6 @@ public final class NovaGestureSurface extends FrameLayout
             panelAdded = false;
             try { panelManager.removeViewImmediate(this); }
             catch (IllegalArgumentException alreadyDetached) {
-                TransitionDiagnostics.event("gesture_panel_already_detached", sessionId);
             }
         } else if (getParent() instanceof ViewGroup) {
             ((ViewGroup) getParent()).removeView(this);

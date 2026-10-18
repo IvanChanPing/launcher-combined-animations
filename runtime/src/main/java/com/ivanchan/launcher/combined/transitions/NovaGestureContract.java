@@ -24,7 +24,7 @@ import java.lang.ref.WeakReference;
  * Invocation: Consume the HOME intent before the vendor reuses p1; reply when the icon surface exists.
  * Contract: API30+, exact parcel keys/types, original Message routing identity preserved. A single
  * weak finish receiver avoids Binder/Activity leaks; arg1 additionally rejects stale-session finish.
- * No app identity, message or pixels enter diagnostics. No local motion clock belongs to this class.
+ * No local motion clock belongs to this class.
  * Verification: Nova/AOSP raw contract and source fixtures; Binder/OEM execution remains unverified.
  * Visual: Supplies the target to the system that moves the actual app window and icon surface.
  */
@@ -64,14 +64,11 @@ final class NovaGestureContract {
             Object callback = data.getParcelable(REMOTE);
             if (!(component instanceof ComponentName) || !(user instanceof UserHandle)
                     || !(callback instanceof Message) || ((Message) callback).replyTo == null) {
-                TransitionDiagnostics.event("gesture_contract_malformed", 0);
                 return null;
             }
-            TransitionDiagnostics.event("gesture_contract_received", 0);
             return new NovaGestureContract((ComponentName) component, (UserHandle) user,
                     (Message) callback);
         } catch (RuntimeException malformedParcel) {
-            TransitionDiagnostics.event("gesture_contract_unreadable", 0);
             return null;
         }
     }
@@ -93,7 +90,6 @@ final class NovaGestureContract {
             reply.replyTo.send(reply);
             return true;
         } catch (RemoteException | RuntimeException unavailable) {
-            TransitionDiagnostics.event("gesture_reply_failed", owner.sessionId);
             return false;
         }
     }
