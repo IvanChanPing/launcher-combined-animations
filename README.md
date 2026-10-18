@@ -2,6 +2,8 @@
 
 An Android library for adding unlock-to-Home, app-open, and return-to-Home transitions to a launcher you build from source.
 
+> **Another, possibly simpler way to add this:** [launcher-animations-portkit](https://github.com/IvanChanPing/launcher-animations-portkit) includes a working sample launcher and a copy-paste template that marks exactly what to fill in for your own launcher.
+
 https://github.com/user-attachments/assets/5ebad042-07ee-45fb-b243-e4f9a72171f9
 
 https://github.com/user-attachments/assets/44daed2d-2217-47fd-92bb-d5a377fc6a06
