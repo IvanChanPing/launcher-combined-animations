@@ -320,7 +320,7 @@ public final class CombinedTransitionController {
             };
             root.postDelayed(timeout, VISUAL_WAIT_MS + SETTLE_MS);
             root.postInvalidateOnAnimation();
-        } catch (ReflectiveOperationException | RuntimeException failure) {
+        } catch (RuntimeException failure) {
             clearVisuals();
         }
     }
